@@ -1,0 +1,78 @@
+0515962a08bd6a75956a594f46dd6e40108cc0c1	not-for-merge	branch 'feat/mtp-speculative-decoding' of https://github.com/SharpAI/mlx-swift-lm
+d8619501febab3a67c0c898bf26abf53e5cec873	not-for-merge	branch 'feature/gemma4-moe-4x-alignment' of https://github.com/SharpAI/mlx-swift-lm
+894cb6fc1452ed9b8bfcbd28e94f74bc48bbd622	not-for-merge	branch 'feature/gemma4-omni-fixes' of https://github.com/SharpAI/mlx-swift-lm
+3856165c9f6f15ac3a0df7b3c022627abebc24a0	not-for-merge	branch 'feature/gemma4-support' of https://github.com/SharpAI/mlx-swift-lm
+5be870cfaac8f760bedf955b3ad4d227c01df6c4	not-for-merge	branch 'feature/glm-5.1' of https://github.com/SharpAI/mlx-swift-lm
+d96b95b6b4b9f7e79ea4609dcea0ea95406d0f97	not-for-merge	branch 'feature/papps-ssd-streaming' of https://github.com/SharpAI/mlx-swift-lm
+dbe823b81d9ef9dd7e26f812c5675e27d194160d	not-for-merge	branch 'feature/revert-glm-5.1' of https://github.com/SharpAI/mlx-swift-lm
+a15c53c0d8afc717ff215d11312bbde0283e651b	not-for-merge	branch 'fix/ci-mlx-swift-path' of https://github.com/SharpAI/mlx-swift-lm
+05f254953597c1952de4699d36bdff46c5fe2dae	not-for-merge	branch 'fix/remove-path-dependency' of https://github.com/SharpAI/mlx-swift-lm
+c7ea10f161a41043e2c88e08644b85b8cef28158	not-for-merge	branch 'glm5.1' of https://github.com/SharpAI/mlx-swift-lm
+2c2cd9eed4eebc9e9ddd50740b780392a322416e	not-for-merge	branch 'main' of https://github.com/SharpAI/mlx-swift-lm
+4fdce2ae90be8f4c007aa7b5a8940517b38572fe	not-for-merge	branch 'sync/upstream-latest' of https://github.com/SharpAI/mlx-swift-lm
+43ebde8e5a291c7f81ac5ab6f3323d4587fbd562	not-for-merge	'refs/pull/1/head' of https://github.com/SharpAI/mlx-swift-lm
+c1ff9f84ff6d420dcb173b0d8b3c713ecbcdbd7a	not-for-merge	'refs/pull/10/head' of https://github.com/SharpAI/mlx-swift-lm
+a74b957f588033dc87e38bde38d961a937e11159	not-for-merge	'refs/pull/11/head' of https://github.com/SharpAI/mlx-swift-lm
+c830b8cb3aa54076ad52c6c78f3faaef2acacdfc	not-for-merge	'refs/pull/12/head' of https://github.com/SharpAI/mlx-swift-lm
+45c133bf32349e36dab18d01b278b19a4bd9c0fd	not-for-merge	'refs/pull/13/head' of https://github.com/SharpAI/mlx-swift-lm
+f2ef61f344842812f4f61975729aaed9e287d535	not-for-merge	'refs/pull/14/head' of https://github.com/SharpAI/mlx-swift-lm
+542cdf93b956bf0b13749c4108cd9a2c21269380	not-for-merge	'refs/pull/15/head' of https://github.com/SharpAI/mlx-swift-lm
+1698251e3d6d080265656c398e147bb0044658b8	not-for-merge	'refs/pull/16/head' of https://github.com/SharpAI/mlx-swift-lm
+894cb6fc1452ed9b8bfcbd28e94f74bc48bbd622	not-for-merge	'refs/pull/17/head' of https://github.com/SharpAI/mlx-swift-lm
+aab10d4b8923859371d9fb4810ff0bcab4efaa9b	not-for-merge	'refs/pull/18/head' of https://github.com/SharpAI/mlx-swift-lm
+f4dabf87054cf79b8fa9a350e01befd71680b4e3	not-for-merge	'refs/pull/19/head' of https://github.com/SharpAI/mlx-swift-lm
+93891289187330237aae7fb410fe53ed5a28cf40	not-for-merge	'refs/pull/2/head' of https://github.com/SharpAI/mlx-swift-lm
+05f254953597c1952de4699d36bdff46c5fe2dae	not-for-merge	'refs/pull/20/head' of https://github.com/SharpAI/mlx-swift-lm
+35b31547c6491757eac3d2e9334ca6caa326110a	not-for-merge	'refs/pull/21/head' of https://github.com/SharpAI/mlx-swift-lm
+8e0ae7c50d2c90e7ccf9870427a0857d89232108	not-for-merge	'refs/pull/22/head' of https://github.com/SharpAI/mlx-swift-lm
+effc2112cd9a1661580349e878762e91d8fcf22e	not-for-merge	'refs/pull/23/head' of https://github.com/SharpAI/mlx-swift-lm
+03b67ad544469bb8a0aea9c33bb68dd933352b07	not-for-merge	'refs/pull/24/head' of https://github.com/SharpAI/mlx-swift-lm
+90c561ad556fe3a7209bf6dddaf9c0975f5e9a23	not-for-merge	'refs/pull/25/head' of https://github.com/SharpAI/mlx-swift-lm
+dbe823b81d9ef9dd7e26f812c5675e27d194160d	not-for-merge	'refs/pull/26/head' of https://github.com/SharpAI/mlx-swift-lm
+d8619501febab3a67c0c898bf26abf53e5cec873	not-for-merge	'refs/pull/27/head' of https://github.com/SharpAI/mlx-swift-lm
+9dec80bf5c4e41079976523928b0699fa464dbf9	not-for-merge	'refs/pull/27/merge' of https://github.com/SharpAI/mlx-swift-lm
+71a77e07b4936599cc40c4a423458c2bc834a0cc	not-for-merge	'refs/pull/28/head' of https://github.com/SharpAI/mlx-swift-lm
+cdc0a0c1d70283546433d8b8f6bf9c0baab5b4b1	not-for-merge	'refs/pull/29/head' of https://github.com/SharpAI/mlx-swift-lm
+3d782a303b93616ebef7756a8a28a249bdc948d2	not-for-merge	'refs/pull/3/head' of https://github.com/SharpAI/mlx-swift-lm
+63493dca39e30b1e7ec916a9263c3ab9eb405a74	not-for-merge	'refs/pull/30/head' of https://github.com/SharpAI/mlx-swift-lm
+63da149c41f7434466c44d7fd43f76c340351740	not-for-merge	'refs/pull/31/head' of https://github.com/SharpAI/mlx-swift-lm
+8eb7c0ef437e6371a28f459f08fd1fbbaec449d3	not-for-merge	'refs/pull/32/head' of https://github.com/SharpAI/mlx-swift-lm
+8a8da296dc7941ed530761c7ce7fb46f5008345c	not-for-merge	'refs/pull/33/head' of https://github.com/SharpAI/mlx-swift-lm
+0babcc7e4a9651b9e1bdf8db40867c4c50349e7e	not-for-merge	'refs/pull/34/head' of https://github.com/SharpAI/mlx-swift-lm
+6a57d00da7dfcc67ad5bb08311293d9d1afc08f8	not-for-merge	'refs/pull/35/head' of https://github.com/SharpAI/mlx-swift-lm
+2d6b2b42f185dfaa07ea19ebdd7c1a49696ab826	not-for-merge	'refs/pull/36/head' of https://github.com/SharpAI/mlx-swift-lm
+dd7b02e07850976a671b46f291fe585db48d49c6	not-for-merge	'refs/pull/37/head' of https://github.com/SharpAI/mlx-swift-lm
+38d7ff2840ab6b91a84b8f168c3cc2539f9356e1	not-for-merge	'refs/pull/38/head' of https://github.com/SharpAI/mlx-swift-lm
+0515962a08bd6a75956a594f46dd6e40108cc0c1	not-for-merge	'refs/pull/39/head' of https://github.com/SharpAI/mlx-swift-lm
+3e20fffdc6ef39a3d78085e73e5360716d7d50eb	not-for-merge	'refs/pull/39/merge' of https://github.com/SharpAI/mlx-swift-lm
+5deab6f72e343517c983355654d92dd1bd14a45f	not-for-merge	'refs/pull/4/head' of https://github.com/SharpAI/mlx-swift-lm
+2b1c653db075848c8c5dd9b3c724e6712b2e5ca3	not-for-merge	'refs/pull/6/head' of https://github.com/SharpAI/mlx-swift-lm
+20189dd55018e230310694dba93d7911914c9ad0	not-for-merge	'refs/pull/7/head' of https://github.com/SharpAI/mlx-swift-lm
+d96b95b6b4b9f7e79ea4609dcea0ea95406d0f97	not-for-merge	'refs/pull/8/head' of https://github.com/SharpAI/mlx-swift-lm
+24b8ba7dbdb92011362d258b7b9e2b88b441935e	not-for-merge	'refs/pull/9/head' of https://github.com/SharpAI/mlx-swift-lm
+d9fb26a5c261c6329a24b2b715c334ca104cff30	not-for-merge	tag 'b389' of https://github.com/SharpAI/mlx-swift-lm
+ea87c09ddd57b9bc845b4a495776523390c76b35	not-for-merge	tag 'b397' of https://github.com/SharpAI/mlx-swift-lm
+5c20934ce98f5cdba19afd3197c4997583d59704	not-for-merge	tag 'b399' of https://github.com/SharpAI/mlx-swift-lm
+1a60b9fdde9e0b06e16b35c58db6dfc85ef366c7	not-for-merge	tag 'b400' of https://github.com/SharpAI/mlx-swift-lm
+baacfeb106e539418cdae5504b5dac89e7d41ac6	not-for-merge	tag 'b413' of https://github.com/SharpAI/mlx-swift-lm
+0f80412345afd36c1f92f9071e53818b7e161949	not-for-merge	tag 'b415' of https://github.com/SharpAI/mlx-swift-lm
+2447344dfb1addb70137323b8cc0e9df8010cf1f	not-for-merge	tag 'b425' of https://github.com/SharpAI/mlx-swift-lm
+cf3cf2ce80e0a37b38a9ef19ea6cf77ca4c422fb	not-for-merge	tag 'b426' of https://github.com/SharpAI/mlx-swift-lm
+7fb05f7dbe5b3c2ac3e5b604598d1eba61ccb2f6	not-for-merge	tag 'b430' of https://github.com/SharpAI/mlx-swift-lm
+af931d4062ae16739a5ce0ced9dac839a0da3ec5	not-for-merge	tag 'b432' of https://github.com/SharpAI/mlx-swift-lm
+3e1052721d436bf5611d0632dc3ee88994d60dea	not-for-merge	tag 'b434' of https://github.com/SharpAI/mlx-swift-lm
+fc2a15ba6ff065f0014350a6331bf0cce4f3a19a	not-for-merge	tag 'b435' of https://github.com/SharpAI/mlx-swift-lm
+50c37323ff30702dfb85c81afabb9d7ffbd3cca4	not-for-merge	tag 'b436' of https://github.com/SharpAI/mlx-swift-lm
+d1ff6d42857666cfb8da1da77b663d270f01a2d2	not-for-merge	tag 'b439' of https://github.com/SharpAI/mlx-swift-lm
+63707c0ccde78daa63ceb0575af52edc9d941c07	not-for-merge	tag 'b440' of https://github.com/SharpAI/mlx-swift-lm
+ef3318e4dacf609a9e94d794d08f868771d28a42	not-for-merge	tag 'b447' of https://github.com/SharpAI/mlx-swift-lm
+adbfbb22f5cef02d7b25a9b3eedabacb98bdf09d	not-for-merge	tag 'b451' of https://github.com/SharpAI/mlx-swift-lm
+694806d49e9932aad4bbf668ed6a0aaa7b93aa1a	not-for-merge	tag 'b453' of https://github.com/SharpAI/mlx-swift-lm
+c154080dad320e3c8bd4aef18b6737c1e79af6a0	not-for-merge	tag 'b463' of https://github.com/SharpAI/mlx-swift-lm
+40d6b67a9cce60ebfab981ba899d36527a6c0c59	not-for-merge	tag 'b465' of https://github.com/SharpAI/mlx-swift-lm
+4c7301d83a6eb4e1348aeef8711a00c9c135dc7e	not-for-merge	tag 'b466' of https://github.com/SharpAI/mlx-swift-lm
+86e3f9388de6bb9e90164d09d3ff73ad8350e136	not-for-merge	tag 'b467' of https://github.com/SharpAI/mlx-swift-lm
+2b3f92d3e011d0dfffc3651c8d1d2c4e0b5d5b16	not-for-merge	tag 'b468' of https://github.com/SharpAI/mlx-swift-lm
+2c2cd9eed4eebc9e9ddd50740b780392a322416e	not-for-merge	tag 'b472' of https://github.com/SharpAI/mlx-swift-lm
+b6d22b6a3314cec4eb961c6b02ab7b261dbf89f4	not-for-merge	tag 'v0.0.1' of https://github.com/SharpAI/mlx-swift-lm
+a38b78d6dc948d997e2b7a3992cb8123003b9b71	not-for-merge	tag 'v0.1.0' of https://github.com/SharpAI/mlx-swift-lm

@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Geometric boundaries of the perfect "P" with razor sharp lines -->
+    <clipPath id="p-shape">
+      <!-- Stem vertical (x: 300 to 460) -->
+      <rect x="300" y="200" width="160" height="600" />
+      <!-- Outer semi-circle loop (r: 220, center at x:460, y:420) -->
+      <path d="M 460 200 A 220 220 0 0 1 460 640 Z" />
+    </clipPath>
+    
+    <!-- Balanced inner cutout hole -->
+    <mask id="hole">
+      <rect width="1024" height="1024" fill="white" />
+      <path d="M 460 330 A 90 90 0 0 1 460 510 Z" fill="black" />
+    </mask>
+  </defs>
+
+  <!-- Pure, infinite vector white background -->
+  <rect width="1024" height="1024" fill="#FFFFFF" />
+
+  <!-- The precise intersection engine using strict Pantone overlays -->
+  <g clip-path="url(#p-shape)" mask="url(#hole)" style="mix-blend-mode: multiply;">
+    
+    <!-- Quadrant 1: Top Right Base (Vivid Cyan) -->
+    <polygon points="460,200 680,200 680,420 460,420" fill="#00BCEB" opacity="0.92" />
+    
+    <!-- Quadrant 2: Bottom Right Base (Emerald Green) -->
+    <polygon points="460,420 680,420 680,640 460,640" fill="#009B77" opacity="0.92" />
+
+    <!-- Diagonal Slope Overlay: Outer Edge Accent (Deep Orange/Golden Yellow) -->
+    <polygon points="580,200 680,420 680,640 540,640" fill="#FFB81C" opacity="0.92" />
+
+    <!-- Upper Half Overlay: Horizontal Ribbon (Ruby Red) -->
+    <polygon points="300,200 680,200 680,420 300,420" fill="#CE1141" opacity="0.92" />
+    
+    <!-- The Foundation Overlay: Left-Side Anchor (Classic Blue) -->
+    <!-- We extend it 40px into the loop (x: 500) to generate the central dark nexus and inner blending. -->
+    <polygon points="300,200 500,200 500,800 300,800" fill="#0F4C81" opacity="0.92" />
+
+  </g>
+</svg>

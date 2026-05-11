@@ -1,0 +1,208 @@
+[
+  {
+    "schemaVersion": 1,
+    "toolID": "parcel_address",
+    "displayName": "Parcel Address",
+    "description": "Extract the delivery address from this parcel/shipping label image.",
+    "briefing": "Use this tool to extract ONLY the DELIVERY/RECIPIENT address, not the sender/return address.",
+    "index": ["parcel", "shipping", "label", "delivery", "recipient"],
+    "icon": "shippingbox.fill",
+    "color": "orange",
+    "rules": [
+      "Return ONLY a valid JSON object.",
+      "Use empty string \"\" if a field is not visible.",
+      "Do NOT include any text before or after the JSON object."
+    ],
+    "prompt": "You are an OCR assistant. Extract the delivery address from this parcel/shipping label image. Return ONLY a valid JSON object with these exact keys: {\"Recipient Name\": \"\", \"Address\": \"\", \"Postcode\": \"\", \"City\": \"\", \"State\": \"\", \"Phone\": \"\", \"Tracking Number\": \"\"}",
+    "inputSchema": { "image": "CIImage" },
+    "outputSchema": {
+      "Recipient Name": "string",
+      "Address": "string",
+      "Postcode": "string",
+      "City": "string",
+      "State": "string",
+      "Phone": "string",
+      "Tracking Number": "string"
+    },
+    "stateSchema": {},
+    "capabilities": ["scan_image", "export_csv"],
+    "examples": []
+  },
+  {
+    "schemaVersion": 1,
+    "toolID": "business_card",
+    "displayName": "Business Card",
+    "description": "Extract contact information from this business card image.",
+    "briefing": "Use this tool when scanning physical or digital business cards to capture professional contact details.",
+    "index": ["business card", "contact", "person", "email", "phone"],
+    "icon": "person.crop.rectangle.fill",
+    "color": "blue",
+    "rules": [
+      "Return ONLY a valid JSON object.",
+      "Use empty string \"\" if a field is not visible.",
+      "Do NOT include any text before or after the JSON object."
+    ],
+    "prompt": "You are an OCR assistant. Extract contact information from this business card image. Return ONLY a valid JSON object with these exact keys: {\"Name\": \"\", \"Title\": \"\", \"Company\": \"\", \"Email\": \"\", \"Phone\": \"\", \"Address\": \"\", \"Website\": \"\"}",
+    "inputSchema": { "image": "CIImage" },
+    "outputSchema": {
+      "Name": "string",
+      "Title": "string",
+      "Company": "string",
+      "Email": "string",
+      "Phone": "string",
+      "Address": "string",
+      "Website": "string"
+    },
+    "stateSchema": {},
+    "capabilities": ["scan_image", "export_csv"],
+    "examples": []
+  },
+  {
+    "schemaVersion": 1,
+    "toolID": "receipt",
+    "displayName": "Receipt",
+    "description": "Extract key information from this receipt image.",
+    "briefing": "Use this tool for retail, dining, or service receipts to track spending and items.",
+    "index": ["receipt", "bill", "invoice", "payment", "store"],
+    "icon": "receipt",
+    "color": "green",
+    "rules": [
+      "Return ONLY a valid JSON object.",
+      "For Items, list them as a comma-separated string.",
+      "Do NOT include any text before or after the JSON object."
+    ],
+    "prompt": "You are an OCR assistant. Extract key information from this receipt image. Return ONLY a valid JSON object with these exact keys: {\"Store Name\": \"\", \"Date\": \"\", \"Total\": \"\", \"Tax\": \"\", \"Payment Method\": \"\", \"Items\": \"\"}",
+    "inputSchema": { "image": "CIImage" },
+    "outputSchema": {
+      "Store Name": "string",
+      "Date": "string",
+      "Total": "string",
+      "Tax": "string",
+      "Payment Method": "string",
+      "Items": "string"
+    },
+    "stateSchema": {},
+    "capabilities": ["scan_image", "export_csv"],
+    "examples": []
+  },
+  {
+    "schemaVersion": 1,
+    "toolID": "document",
+    "displayName": "Document",
+    "description": "Extract all readable text from this document image.",
+    "briefing": "Use this tool for general documents, letters, or pages to digitize text content.",
+    "index": ["document", "text", "page", "letter", "report"],
+    "icon": "doc.text.fill",
+    "color": "purple",
+    "rules": [
+      "Return ONLY a valid JSON object.",
+      "Do NOT include any text before or after the JSON object."
+    ],
+    "prompt": "You are an OCR assistant. Extract all readable text from this document image. Return ONLY a valid JSON object with these exact keys: {\"Title\": \"\", \"Content\": \"\", \"Date\": \"\", \"Author\": \"\", \"Notes\": \"\"}",
+    "inputSchema": { "image": "CIImage" },
+    "outputSchema": {
+      "Title": "string",
+      "Content": "string",
+      "Date": "string",
+      "Author": "string",
+      "Notes": "string"
+    },
+    "stateSchema": {},
+    "capabilities": ["scan_image", "export_csv"],
+    "examples": []
+  },
+  {
+    "schemaVersion": 1,
+    "toolID": "wikipedia",
+    "displayName": "Wikipedia",
+    "description": "Identify the main subject from text or images, fetch the full Wikipedia lead, and support follow-up detail requests.",
+    "briefing": "You identify the strongest Wikipedia-ready subject from the user's text or image, fetch the article lead, and support deeper follow-up questions about the same topic.",
+    "index": ["wiki", "wikipedia", "search", "fact", "encyclopedia"],
+    "icon": "globe.americas.fill",
+    "color": "cyan",
+    "rules": [
+      "Identify the single most significant named subject from the user's input.",
+      "Return the shortest canonical topic suitable for a Wikipedia page.",
+      "Do not add generic suffixes like document, image, photo, logo, sign, label, or text.",
+      "If you can answer the user's question directly using information present in the current chat history, populate the 'answer' field and do not provide an '_action'.",
+      "Use _action 'fetch_wiki' for new topic lookups, and 'wiki_research' ONLY when actual external research is required to find new facts."
+    ],
+    "prompt": "Evaluate the user request and act accordingly. Return ONLY valid JSON. Options: 1. New lookup -> {\"topic\": \"Name\", \"_action\": \"fetch_wiki\"}. 2. Perform deep research for missing info -> {\"topic\": \"Name\", \"question\": \"search query\", \"_action\": \"wiki_research\"}. 3. Answer directly from context -> {\"topic\": \"Name\", \"answer\": \"My response.\"}.",
+    "capabilities": ["scan_image"],
+    "inputSchema": {
+      "prompt": "string",
+      "image": "CIImage"
+    },
+    "outputSchema": {
+      "topic": "string",
+      "question": "string",
+      "answer": "string",
+      "_action": "string"
+    },
+    "stateSchema": {
+      "last_topic": "string"
+    },
+    "stateBridges": [
+      {
+        "field": "topic",
+        "stateKey": "last_topic",
+        "fallbackToState": true,
+        "persistToState": true,
+        "sanitizer": "subject"
+      }
+    ],
+    "runtimeActions": {
+      "fetch_wiki": {
+        "topicField": "topic",
+        "fallbackStateKey": "last_topic",
+        "request": {
+          "endpointTemplate": "https://en.wikipedia.org/api/rest_v1/page/summary/{topic}",
+          "responseMode": "text_path",
+          "textPath": "extract",
+          "imageURLPath": "thumbnail.source"
+        }
+      },
+      "wiki_research": {
+        "topicField": "topic",
+        "questionField": "question",
+        "fallbackStateKey": "last_topic",
+        "request": {
+          "endpointTemplate": "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch={topic}%20{question}&format=json",
+          "responseMode": "ranked_html_sections",
+          "sectionsPath": "query.search",
+          "sectionTitleKey": "title",
+          "sectionBodyKey": "snippet",
+          "maxSections": 4,
+          "introTemplate": "Search results for {topic}{question_clause}:"
+        }
+      }
+    },
+    "examples": []
+  },
+  {
+    "schemaVersion": 1,
+    "toolID": "custom",
+    "displayName": "Custom",
+    "description": "Extract all readable text and structured information from this image.",
+    "briefing": "Use this tool when the user scans receipts, stock sheets, labels, or product tables.",
+    "index": ["receipt", "inventory", "stock", "product", "price"],
+    "icon": "sparkles",
+    "color": "cyan",
+    "rules": [
+      "Return only valid JSON.",
+      "Never include executable code.",
+      "Use _state only for durable cross-scan memory.",
+      "Use _actions only for declarative user-approved actions."
+    ],
+    "prompt": "You are an advanced OCR assistant. Extract all readable text and structured information from this image. Return ONLY a valid JSON object. You have full flexibility to choose the schema. REQUIRED META KEYS: _isValid, _validationNotes, _scriptNotes, _state, _actions.",
+    "inputSchema": { "image": "CIImage" },
+    "outputSchema": {},
+    "stateSchema": {
+      "lastStore": "string",
+      "runningTotal": "string",
+      "scanCount": "string"
+    },
+    "capabilities": ["scan_image", "export_csv", "persistent_state"],
+    "examples": []
+  }
+]
