@@ -254,12 +254,21 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         var introTemplate: String?
     }
 
+    struct PluginInvocationDefinition: Codable, Equatable {
+        var pluginID: String
+        var capabilityID: String
+        var arguments: [String: String]?
+        var responseField: String?
+        var hiddenContext: Bool?
+    }
+
     struct RuntimeActionDefinition: Codable, Equatable {
         var topicField: String?
         var questionField: String?
         var fallbackStateKey: String?
-        var request: RuntimeRequestDefinition
+        var request: RuntimeRequestDefinition?
         var fallbackRequest: RuntimeRequestDefinition?
+        var plugin: PluginInvocationDefinition?
     }
     
     var schemaVersion: Int

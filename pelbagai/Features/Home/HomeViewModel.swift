@@ -6,6 +6,7 @@ class HomeViewModel: ObservableObject {
     @Published var recentSessions: [ChatSession] = []
     @Published var chatSearchText: String = ""
     @Published var chatInputMode: ChatInputMode = .chat
+    @Published var pendingImage: UIImage? = nil
     
     // Model state mirroring from managers
     @Published var totalResultCount: Int = 0

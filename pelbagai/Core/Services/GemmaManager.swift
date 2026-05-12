@@ -1,5 +1,8 @@
 import Foundation
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 import Combine
 import MLX
 import MLXLLM
@@ -46,22 +49,13 @@ nonisolated enum GemmaModel: String, CaseIterable, Identifiable {
         case .e2b:
             return true
         case .e4b:
-            // E4B requires at least 12GB RAM (using 11.5GB threshold for reporting variances)
-            return MemoryStats.totalMemoryGB >= 11.5
+            // E4B requires at least 12GB RAM (using 10.5GB GiB threshold to account for decimal vs binary reporting)
+            return MemoryStats.totalMemoryGB >= 10.5
         }
     }
     
     static var availableModels: [GemmaModel] {
         allCases.filter { $0.isSupported }
-    }
-}
-
-nonisolated private enum GemmaLocalTool: String, CaseIterable {
-    case currentTime = "get_current_time"
-    case batteryLevel = "get_battery_level"
-    
-    var displayName: String {
-        rawValue.replacingOccurrences(of: "_", with: " ")
     }
 }
 
@@ -95,22 +89,12 @@ class GemmaManager: ObservableObject {
     @Published var response: String = ""
     @Published var clarificationRequest: ClarificationRequest?
     
-    @Published var selectedModel: GemmaModel {
-        didSet {
-            UserDefaults.standard.set(selectedModel.rawValue, forKey: "selectedGemmaModel")
-            // If model changed, we need to reload via MLXModelManager
-            if isModelLoaded {
-                Task {
-                    await MLXModelManager.shared.unloadModel()
-                    await loadModel()
-                }
-            }
-        }
-    }
+    @Published private(set) var selectedModel: GemmaModel
     
     var isModelLoaded: Bool { MLXModelManager.shared.isLoaded }
     @Published var isGenerating: Bool = false
     @Published var status: String = ""
+    @Published private(set) var lastErrorMessage: String?
     
     private var modelID: String {
         selectedModel.modelID
@@ -121,8 +105,13 @@ class GemmaManager: ObservableObject {
     nonisolated private static let toolCallCloseTag = "</tool_call>"
     nonisolated private static let clarifyOpenTag = "<clarify>"
     nonisolated private static let clarifyCloseTag = "</clarify>"
+    nonisolated private static let allowedNativeChatToolNames: Set<String> = [
+        "get_current_time",
+        "get_battery_level"
+    ]
     private let maxToolIterations = 3
     private let maxGeneratedTokens = 640
+    private let nativePlugins = NativePluginRegistry.shared
     
     /// Prompt contract that defines the assistant behavior and local tool protocol.
     private let systemPrompt = """
@@ -151,8 +140,8 @@ class GemmaManager: ObservableObject {
     Assistant: You're welcome!
 
     Local tools (use ONLY when explicitly asked):
-    - get_current_time: Use ONLY when the user explicitly asks "what time is it", "what's the date", or similar.
-    - get_battery_level: Use ONLY when the user explicitly asks about battery level or charging state.
+    - get_current_time: Swift-owned native plugin for current device-local time/date. Use ONLY when the user explicitly asks "what time is it", "what's the date", or similar.
+    - get_battery_level: Swift-owned native plugin for battery percentage/charging state. Use ONLY when the user explicitly asks about battery level or charging state.
 
     Tool calling protocol:
     - Call a tool ONLY when the user's message clearly and explicitly requests time/date or battery information.
@@ -216,46 +205,39 @@ class GemmaManager: ObservableObject {
         guard !isGenerating else { return }
         
         print("🧠 Switching Gemma model to: \(model.displayName)")
-        selectedModel = model
-        await loadModel()
+        
+        let previousModel = selectedModel
+        let previouslyLoadedModelID = MLXModelManager.shared.currentModelID
+        
+        do {
+            try await load(model: model)
+            commitSelectedModel(model)
+        } catch {
+            print("🧠 Failed to switch Gemma model to \(model.displayName): \(error)")
+            
+            if previouslyLoadedModelID == previousModel.modelID {
+                do {
+                    try await load(model: previousModel)
+                    commitSelectedModel(previousModel)
+                } catch {
+                    print("🧠 Failed to restore previous Gemma model \(previousModel.displayName): \(error)")
+                }
+            }
+        }
     }
     
     // MARK: - Local Tools
     
-    private func getCurrentTime() -> String {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        return formatter.string(from: Date())
-    }
-    
-    private func getBatteryLevel() -> String {
-        #if os(iOS)
-        let level = Int(UIDevice.current.batteryLevel * 100)
-        let state: String
-        switch UIDevice.current.batteryState {
-        case .charging: state = "charging"
-        case .full: state = "full"
-        case .unplugged: state = "unplugged"
-        default: state = "unknown"
-        }
-        return "Battery level: \(level)%, state: \(state)"
-        #else
-        return "Battery information only available on iOS devices."
-        #endif
-    }
-    
-    private func executeTool(_ toolCall: GemmaToolCall) -> String {
-        guard let tool = GemmaLocalTool(rawValue: toolCall.name) else {
-            return "Error: Tool '\(toolCall.name)' is not available."
-        }
-        
-        print("🧠 Executing tool: \(tool.rawValue)")
-        switch tool {
-        case .currentTime:
-            return getCurrentTime()
-        case .batteryLevel:
-            return getBatteryLevel()
+    private func executeTool(_ toolCall: GemmaToolCall) async -> String {
+        do {
+            print("🧠 Executing native plugin chat tool: \(toolCall.name)")
+            let result = try await nativePlugins.executeChatTool(
+                name: toolCall.name,
+                arguments: toolCall.args ?? [:]
+            )
+            return result.summary
+        } catch {
+            return "Error: \(error.localizedDescription)"
         }
     }
 
@@ -275,7 +257,7 @@ class GemmaManager: ObservableObject {
         ].contains { normalized.contains($0) }
 
         if asksForBattery {
-            return GemmaToolCall(name: GemmaLocalTool.batteryLevel.rawValue, args: [:])
+            return GemmaToolCall(name: "get_battery_level", args: [:])
         }
 
         let asksForTimeOrDate = [
@@ -292,33 +274,49 @@ class GemmaManager: ObservableObject {
         ].contains { normalized.contains($0) }
 
         if asksForTimeOrDate {
-            return GemmaToolCall(name: GemmaLocalTool.currentTime.rawValue, args: [:])
+            return GemmaToolCall(name: "get_current_time", args: [:])
         }
 
         return nil
     }
 
     private func finalAnswer(for toolCall: GemmaToolCall, result: String) -> String {
-        switch GemmaLocalTool(rawValue: toolCall.name) {
-        case .currentTime:
+        switch toolCall.name {
+        case "get_current_time":
             return "It is \(result)."
-        case .batteryLevel:
+        case "get_battery_level":
             return result
-        case .none:
+        default:
             return result
         }
+    }
+
+    private func commitSelectedModel(_ model: GemmaModel) {
+        guard selectedModel != model else { return }
+        selectedModel = model
+        UserDefaults.standard.set(model.rawValue, forKey: "selectedGemmaModel")
+    }
+
+    private func load(model: GemmaModel) async throws {
+        try await MLXModelManager.shared.loadModel(modelID: model.modelID)
     }
     
     // MARK: - Model Lifecycle
     
     /// Loads the Gemma model via MLXModelManager.
-    func loadModel() async {
-        guard !isGenerating else { return }
+    @discardableResult
+    func loadModel() async -> Bool {
+        guard !isGenerating else { return false }
         
         do {
-            try await MLXModelManager.shared.loadModel(modelID: modelID)
+            try await load(model: selectedModel)
+            lastErrorMessage = nil
+            return true
         } catch {
             print("🧠 Failed to load Gemma model: \(error)")
+            lastErrorMessage = error.localizedDescription
+            status = "Load failed: \(error.localizedDescription)"
+            return false
         }
     }
     
@@ -340,6 +338,7 @@ class GemmaManager: ObservableObject {
         isGenerating = true
         response = ""
         clarificationRequest = nil
+        lastErrorMessage = nil
         status = ""
         defer {
             status = ""
@@ -351,8 +350,8 @@ class GemmaManager: ObservableObject {
         
         do {
             if audio == nil, image == nil, let toolCall = explicitLocalToolRequest(for: prompt) {
-                status = "Using \(GemmaLocalTool(rawValue: toolCall.name)?.displayName ?? toolCall.name)..."
-                let toolResult = executeTool(toolCall)
+                status = "Using \(nativePlugins.chatTool(named: toolCall.name)?.displayName ?? toolCall.name)..."
+                let toolResult = await executeTool(toolCall)
                 response = finalAnswer(for: toolCall, result: toolResult)
                 print("🧠 Handled local tool without model generation: \(toolCall.name)")
                 return
@@ -469,11 +468,11 @@ class GemmaManager: ObservableObject {
                     executedToolCalls.insert(toolCall)
                     
                     // UI Updates
-                    self.status = "Using \(GemmaLocalTool(rawValue: toolCall.name)?.displayName ?? toolCall.name)..."
+                    self.status = "Using \(nativePlugins.chatTool(named: toolCall.name)?.displayName ?? toolCall.name)..."
                     self.response = ""
                     
                     print("🧠 Tool call detected: \(toolCall.name)")
-                    let toolResult = executeTool(toolCall)
+                    let toolResult = await executeTool(toolCall)
 
                     self.response = finalAnswer(for: toolCall, result: toolResult)
                     print("🧠 Completed local tool without follow-up model generation")
@@ -499,7 +498,85 @@ class GemmaManager: ObservableObject {
             
         } catch {
             print("🧠 Generation error: \(error)")
-            self.response = "Error: \(error.localizedDescription)"
+            lastErrorMessage = error.localizedDescription
+            self.response = "I hit a local model error: \(error.localizedDescription)"
+        }
+    }
+
+    /// Generates text from fully prepared chat messages. Agent orchestration,
+    /// tool routing, and memory injection live outside this manager.
+    func generateText(messages: [[String: String]], statusText: String = "Thinking...") async -> String {
+        guard !isGenerating else { return "" }
+
+        isGenerating = true
+        response = ""
+        clarificationRequest = nil
+        lastErrorMessage = nil
+        status = statusText
+        defer {
+            status = ""
+            isGenerating = false
+            MLXModelManager.shared.clearCache()
+        }
+
+        guard let container = MLXModelManager.shared.container else {
+            response = "Model is not loaded yet."
+            lastErrorMessage = response
+            return response
+        }
+
+        let maxTokens = maxGeneratedTokens
+
+        do {
+            let rawOutput = try await container.perform { context in
+                let input = try await context.processor.prepare(
+                    input: .init(messages: messages)
+                )
+                let result = try MLXLMCommon.generate(
+                    input: input,
+                    parameters: GenerateParameters(temperature: 0.25, prefillStepSize: 128),
+                    context: context
+                ) { tokens in
+                    if Task.isCancelled || !MLXModelManager.shared.isForegroundGPUAllowed() { return .stop }
+                    if tokens.count >= maxTokens { return .stop }
+
+                    if tokens.count % 32 == 0, MemoryStats.headroomMB < 200 {
+                        Task { @MainActor in
+                            self.response += "\n\n> ⚠️ Stopped due to low memory. Please close background apps."
+                        }
+                        return .stop
+                    }
+
+                    let text = context.tokenizer.decode(tokenIds: tokens)
+                    let cleanedText = Self.cleanModelOutput(text)
+                    let visibleText = Self.visibleOutput(from: cleanedText)
+
+                    for stopSeq in Self.stopSequences where text.contains(stopSeq) {
+                        Task { @MainActor in self.response = visibleText }
+                        return .stop
+                    }
+
+                    Task { @MainActor in
+                        if Self.hasPartialToolCall(in: cleanedText) {
+                            self.status = "Checking local context..."
+                        } else if Self.hasPartialClarify(in: cleanedText) {
+                            self.status = "Structuring clarification..."
+                        }
+                        self.response = visibleText
+                    }
+                    return .more
+                }
+                return result.output
+            }
+
+            let cleaned = Self.cleanModelOutput(rawOutput)
+            response = Self.visibleOutput(from: cleaned)
+            return cleaned
+        } catch {
+            print("🧠 Generation error: \(error)")
+            lastErrorMessage = error.localizedDescription
+            response = "I hit a local model error: \(error.localizedDescription)"
+            return response
         }
     }
 
@@ -604,7 +681,7 @@ class GemmaManager: ObservableObject {
         
         guard let data = jsonString.data(using: .utf8),
               let toolCall = try? JSONDecoder().decode(GemmaToolCall.self, from: data),
-              GemmaLocalTool(rawValue: toolCall.name) != nil else {
+              allowedNativeChatToolNames.contains(toolCall.name) else {
             return nil
         }
         

@@ -34,7 +34,15 @@ class MainViewModel: ObservableObject {
         if !sessions.contains(where: { $0.id == newSession.id }) {
             sessions.insert(newSession, at: 0)
         }
-        selectedItem = .chat(newSession.id)
+        selectedItem = .chat(newSession.id, initialPrompt: nil)
+    }
+    
+    func createNewChat(with prompt: String) {
+        let newSession = environment.database.getOrCreateEmptySession(title: "New Chat")
+        if !sessions.contains(where: { $0.id == newSession.id }) {
+            sessions.insert(newSession, at: 0)
+        }
+        selectedItem = .chat(newSession.id, initialPrompt: prompt)
     }
     
     func deleteSession(_ session: ChatSession) {
@@ -67,7 +75,7 @@ class MainViewModel: ObservableObject {
         guard let item = newItem else { return }
         
         switch item {
-        case .chat(let id):
+        case .chat(let id, _):
             if !chatPath.contains(item) {
                 chatPath.append(item)
             }

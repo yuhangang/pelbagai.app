@@ -30,8 +30,8 @@ class ExcelExporter: ObservableObject {
         // Collect all unique field keys across results
         let allKeys = ScanResult.allFieldKeys(from: results)
         
-        // Build CSV content
-        var csvContent = ScanResult.csvHeader(for: results) + "\n"
+        // Build CSV content (with UTF-8 BOM for Excel compatibility)
+        var csvContent = "\u{FEFF}" + ScanResult.csvHeader(for: results) + "\n"
         for result in results {
             csvContent += result.csvRow(allKeys: allKeys) + "\n"
         }
@@ -76,7 +76,9 @@ class ExcelExporter: ObservableObject {
                 create: true
             )
             let fileURL = documentsURL.appendingPathComponent(filename)
-            try content.write(to: fileURL, atomically: true, encoding: .utf8)
+            
+            let finalContent = content.hasPrefix("\u{FEFF}") ? content : "\u{FEFF}" + content
+            try finalContent.write(to: fileURL, atomically: true, encoding: .utf8)
             
             exportedFileURL = fileURL
             print("📊 Exported custom CSV to: \(fileURL.path)")

@@ -25,6 +25,10 @@ Current ownership boundaries:
   through views.
 - `DatabaseManager.swift`: GRDB-backed chat session/message persistence.
 - `ToolStorage.swift`: JSON file storage for scan/tool results.
+- `NativePluginRegistry.swift` and `Core/Services/Plugins/`: Swift-owned native
+  system integrations. Plugins are compile-time capabilities, not dynamic JSON
+  tools, and may expose controlled interfaces to chat tools or tool runtime
+  actions.
 - `ScanResult.swift`: scan templates, local tool definitions, prompt contracts,
   field data types, declarative tool actions, and CSV-facing model compatibility.
 - `ScriptEngine.swift`: legacy no-op compatibility shim. Model-produced scripts
@@ -59,6 +63,12 @@ Treat local tool output as declarative data. Do not grant model-produced content
 network, filesystem, database, script, or UI powers. Keep web loading as an
 explicit caller-owned `ToolAction.openURL` handoff with URL validation and user
 approval.
+
+Keep Swift-native plugins separate from dynamic local tools. Plugins may own
+Contacts, EventKit, HealthKit, clipboard, media, or storage integration only as
+trusted Swift code with explicit permission and validation paths. Dynamic JSON
+tools may reference existing plugin capabilities through app-owned runtime
+actions, but must never define new native capabilities.
 
 Prefer small dedicated SwiftUI subviews over very large computed views when a
 screen grows. Extract components around real concepts such as message bubbles,

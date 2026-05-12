@@ -82,6 +82,20 @@ class DatabaseManager {
                 t.add(column: "imageData", .blob)
             }
         }
+
+        migrator.registerMigration("v3_agent_memory") { db in
+            try db.create(table: "agentMemory") { t in
+                t.column("id", .text).primaryKey()
+                t.column("kind", .text).notNull()
+                t.column("key", .text).notNull()
+                t.column("value", .text).notNull()
+                t.column("sourceSessionId", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(index: "agentMemory_kind_key", on: "agentMemory", columns: ["kind", "key"], unique: true)
+            try db.create(index: "agentMemory_updatedAt", on: "agentMemory", columns: ["updatedAt"])
+        }
         
         return migrator
     }
@@ -190,6 +204,85 @@ class DatabaseManager {
             }
         } catch {
             print("Error deleting message: \(error)")
+        }
+    }
+
+    // MARK: - Agent Memory
+
+    func upsertAgentMemory(kind: String, key: String, value: String, sourceSessionId: UUID?) {
+        let normalizedKind = kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedKey = key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedKind.isEmpty, !normalizedKey.isEmpty, !trimmedValue.isEmpty else { return }
+
+        do {
+            try dbQueue.write { db in
+                if var existing = try AgentMemory
+                    .filter(AgentMemory.Columns.kind == normalizedKind)
+                    .filter(AgentMemory.Columns.key == normalizedKey)
+                    .fetchOne(db) {
+                    existing.value = trimmedValue
+                    existing.sourceSessionId = sourceSessionId ?? existing.sourceSessionId
+                    existing.updatedAt = Date()
+                    try existing.update(db)
+                } else {
+                    let memory = AgentMemory(
+                        id: UUID(),
+                        kind: normalizedKind,
+                        key: normalizedKey,
+                        value: trimmedValue,
+                        sourceSessionId: sourceSessionId,
+                        createdAt: Date(),
+                        updatedAt: Date()
+                    )
+                    try memory.insert(db)
+                }
+            }
+        } catch {
+            print("Error upserting agent memory: \(error)")
+        }
+    }
+
+    func searchAgentMemory(query: String, limit: Int = 6) -> [AgentMemory] {
+        let terms = query
+            .lowercased()
+            .split { !$0.isLetter && !$0.isNumber }
+            .map(String.init)
+            .filter { $0.count >= 3 }
+        guard !terms.isEmpty else {
+            return recentAgentMemories(limit: limit)
+        }
+
+        do {
+            return try dbQueue.read { db in
+                let memories = try AgentMemory
+                    .order(AgentMemory.Columns.updatedAt.desc)
+                    .fetchAll(db)
+                return memories
+                    .filter { memory in
+                        let haystack = "\(memory.kind) \(memory.key) \(memory.value)".lowercased()
+                        return terms.contains { haystack.contains($0) }
+                    }
+                    .prefix(limit)
+                    .map { $0 }
+            }
+        } catch {
+            print("Error searching agent memory: \(error)")
+            return []
+        }
+    }
+
+    func recentAgentMemories(limit: Int = 6) -> [AgentMemory] {
+        do {
+            return try dbQueue.read { db in
+                try AgentMemory
+                    .order(AgentMemory.Columns.updatedAt.desc)
+                    .limit(limit)
+                    .fetchAll(db)
+            }
+        } catch {
+            print("Error getting agent memories: \(error)")
+            return []
         }
     }
 }

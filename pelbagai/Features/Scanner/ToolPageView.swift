@@ -6,7 +6,6 @@ import CoreImage
 import UIKit
 #else
 import AppKit
-fileprivate typealias UIImage = NSImage
 #endif
 
 /// A block-based tool page that renders capabilities as interactive GUI blocks.
@@ -14,7 +13,7 @@ struct ToolPageView: View {
     @StateObject private var viewModel: ToolPageViewModel
     @EnvironmentObject private var env: AppEnvironment
     @Environment(\.colorScheme) private var colorScheme
-    @FocusState private var isInputFocused: Bool
+    @FocusState private var isChatBarFocused: Bool
     
     init(toolID: String, env: AppEnvironment) {
         _viewModel = StateObject(wrappedValue: ToolPageViewModel(toolID: toolID, environment: env))
@@ -49,15 +48,19 @@ struct ToolPageView: View {
         .onChange(of: viewModel.capturedImage) { _, newImage in
             handleCapturedImage(newImage)
         }
+#if os(iOS)
         .sheet(isPresented: $viewModel.showCamera) {
             CameraView(image: $viewModel.capturedImage)
         }
+#endif
         .sheet(isPresented: $viewModel.showEditSheet) {
             editResultSheet()
         }
+#if os(iOS)
         .sheet(isPresented: $viewModel.showExportSheet) {
             exportShareSheet()
         }
+#endif
     }
     
     @ViewBuilder
@@ -137,8 +140,8 @@ struct ToolPageView: View {
 
     @ToolbarContentBuilder
     private func toolToolbarContent() -> some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            if !viewModel.savedResults.isEmpty {
+        ToolbarItemGroup(placement: .primaryAction) {
+            if !viewModel.savedResults.isEmpty || viewModel.lastResult != nil {
                 Button {
                     viewModel.exportCurrentResults()
                 } label: {
@@ -251,8 +254,7 @@ struct ToolPageView: View {
     private func handleCapturedImage(_ newImage: UIImage?) {
         if let image = newImage {
             viewModel.capturedImage = nil
-            viewModel.promptResponses.append(ToolPromptResponse(text: "📷 Photo captured", isUser: true, image: image))
-            Task { await viewModel.processImage(image) }
+            viewModel.pendingImage = image
         }
     }
 
@@ -340,6 +342,36 @@ struct ToolPageView: View {
     @ViewBuilder
     private func toolPromptBar() -> some View {
         VStack(spacing: 0) {
+            // Pending Image Preview
+            if let image = viewModel.pendingImage {
+                HStack {
+                    ZStack(alignment: .topTrailing) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: 56, height: 56)
+                            .cornerRadius(12)
+                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(viewModel.toolColor.opacity(0.2), lineWidth: 1))
+                        
+                        Button {
+                            withAnimation {
+                                viewModel.pendingImage = nil
+                            }
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(.gray)
+                                .background(Circle().fill(Color.white))
+                        }
+                        .offset(x: 6, y: -6)
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
             HStack(spacing: 12) {
                 HStack {
                     TextField("Ask about this tool or paste data…", text: $viewModel.textInput)
@@ -347,11 +379,11 @@ struct ToolPageView: View {
                         .foregroundColor(.primary)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
-                        .focused($isInputFocused)
+                        .focused($isChatBarFocused) // Note: Renamed from isInputFocused for consistency
                         .disabled(viewModel.isLoadingModels)
                         .onSubmit { viewModel.sendTextInput() }
                     
-                    if !viewModel.textInput.isEmpty {
+                    if !viewModel.textInput.isEmpty || viewModel.pendingImage != nil {
                         Button(action: viewModel.sendTextInput) {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 14, weight: .bold))
@@ -372,22 +404,17 @@ struct ToolPageView: View {
                     viewModel.showCamera = true
                 } label: {
                     Image(systemName: "camera.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
-                        .background(viewModel.toolColor.gradient)
-                        .clipShape(Circle())
-                        .shadow(color: viewModel.toolColor.opacity(0.3), radius: 5)
+                        .font(.system(size: 18))
+                        .foregroundColor(viewModel.toolColor.opacity(0.8))
+                        .frame(width: 36, height: 36)
                 }
                 .disabled(viewModel.isLoadingModels || viewModel.isProcessingText)
                 
                 PhotosPicker(selection: $viewModel.selectedPhotoItem, matching: .images) {
                     Image(systemName: "photo.on.rectangle.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(viewModel.toolColor)
-                        .frame(width: 44, height: 44)
-                        .background(viewModel.toolColor.opacity(0.1))
-                        .clipShape(Circle())
+                        .font(.system(size: 18))
+                        .foregroundColor(viewModel.toolColor.opacity(0.8))
+                        .frame(width: 36, height: 36)
                 }
                 .disabled(viewModel.isLoadingModels || viewModel.isProcessingText)
             }

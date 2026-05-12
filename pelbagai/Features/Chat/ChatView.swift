@@ -5,8 +5,6 @@ import AVFAudio
 import UIKit
 #else
 import AppKit
-fileprivate typealias UIColor = NSColor
-fileprivate typealias UIImage = NSImage
 #endif
 
 
@@ -23,8 +21,8 @@ struct ChatView: View {
     @State private var isRotating = false
     @State private var showDeleteConfirmation = false
     
-    init(sessionId: UUID, env: AppEnvironment) {
-        _viewModel = StateObject(wrappedValue: ChatViewModel(sessionId: sessionId, environment: env))
+    init(sessionId: UUID, initialPrompt: String? = nil, env: AppEnvironment) {
+        _viewModel = StateObject(wrappedValue: ChatViewModel(sessionId: sessionId, environment: env, initialPrompt: initialPrompt))
     }
     
     var body: some View {
@@ -52,9 +50,10 @@ struct ChatView: View {
                             isLoadingModels: viewModel.isLoadingModels,
                             isModelLoaded: viewModel.isModelLoaded,
                             userDefinitionsCount: viewModel.userDefinitionsCount,
+                            pendingImage: $viewModel.pendingImage,
                             onMicTap: viewModel.handleMicTap,
                             onCameraTap: { viewModel.showCamera = true },
-                            onSend: viewModel.sendTypedMessage
+                            onSend: viewModel.sendTypedMessage,
                         )
                     }
                     .padding(.vertical, 8)
@@ -65,14 +64,20 @@ struct ChatView: View {
             if let request = viewModel.clarificationRequest {
                 clarificationOverlay(request)
             }
+
+            if let pending = viewModel.pendingToolCall {
+                toolConfirmationOverlay(pending)
+            }
         }
+#if os(iOS)
         .sheet(isPresented: $viewModel.showCamera) {
             CameraView(image: $viewModel.capturedImage)
         }
+#endif
         .onChange(of: viewModel.capturedImage) { _, newImage in
             if let image = newImage {
                 viewModel.capturedImage = nil
-                viewModel.sendImageMessage(image)
+                viewModel.pendingImage = image
             }
         }
         .navigationTitle("Pelbagai")
@@ -84,6 +89,12 @@ struct ChatView: View {
                 dynamicIslandStatus
             }
             ToolbarItemGroup(placement: .primaryAction) {
+                Button(action: viewModel.retryLastAgentResponse) {
+                    Image(systemName: "arrow.clockwise")
+                        .foregroundColor(viewModel.isGenerating || viewModel.messages.isEmpty ? .primary.opacity(0.3) : .cyan)
+                }
+                .disabled(viewModel.isGenerating || viewModel.messages.isEmpty)
+
                 Button(action: {
                     ttsEnabled.toggle()
                     if !ttsEnabled {
@@ -241,9 +252,11 @@ struct ChatView: View {
                     scrollToBottom(proxy: proxy)
                 }
             }
+#if os(iOS)
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 scrollToBottom(proxy: proxy)
             }
+#endif
         }
     }
     
@@ -418,6 +431,24 @@ struct ChatView: View {
         }
         .zIndex(10)
     }
+
+    private func toolConfirmationOverlay(_ pending: PendingToolCall) -> some View {
+        ZStack {
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+
+            ToolConfirmationBlock(
+                pending: pending,
+                onConfirm: { args in
+                    viewModel.confirmPendingToolCall(arguments: args)
+                },
+                onCancel: {
+                    viewModel.cancelPendingToolCall()
+                }
+            )
+        }
+        .zIndex(11)
+    }
 }
 
 private enum ToolDefinitionError: LocalizedError {
@@ -484,9 +515,15 @@ struct AsyncDataImageView: View {
     var body: some View {
         Group {
             if let uiImage = uiImage {
+#if os(iOS)
                 Image(uiImage: uiImage)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
+#else
+                Image(nsImage: uiImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+#endif
             } else {
                 Color.primary.opacity(0.1)
                     .aspectRatio(3.0/4.0, contentMode: .fit)

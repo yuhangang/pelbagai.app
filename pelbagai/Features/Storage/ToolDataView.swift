@@ -86,7 +86,7 @@ struct ToolDataView: View {
         .navigationBarTitleDisplayMode(.inline)
 #endif
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .primaryAction) {
                 if !viewModel.toolCatalog.isEmpty {
                     Text(viewModel.totalStorageSize)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))

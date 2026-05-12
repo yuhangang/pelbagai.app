@@ -7,7 +7,6 @@ import CoreImage
 import UIKit
 #else
 import AppKit
-fileprivate typealias UIImage = NSImage
 #endif
 
 /// A general-purpose vision scanner that uses Gemma 4 to extract structured data from images.
@@ -28,39 +27,7 @@ struct ScannerView: View {
             
             VStack(spacing: 0) {
                 ScrollView {
-                    VStack(spacing: 20) {
-                        if viewModel.isLoadingModel {
-                            loadingModelView
-                                .padding(.horizontal)
-                        }
-                        
-                        if !viewModel.isLoadingModel {
-                            templateSelector
-                            scanInputArea
-                                .padding(.horizontal)
-                        }
-                        
-                        if let image = viewModel.capturedImage {
-                            capturedImagePreview(image)
-                                .padding(.horizontal)
-                        }
-                        
-                        if viewModel.isProcessing {
-                            processingIndicator
-                                .padding(.horizontal)
-                        }
-                        
-                        if let result = viewModel.lastResult, !viewModel.isProcessing {
-                            extractedDataCard(result)
-                                .padding(.horizontal)
-                        }
-                        
-                        if !viewModel.scanResults.isEmpty {
-                            batchListSection
-                                .padding(.horizontal)
-                        }
-                    }
-                    .padding(.bottom, 100)
+                    mainScrollContent
                 }
                 
                 if !viewModel.scanResults.isEmpty {
@@ -69,9 +36,11 @@ struct ScannerView: View {
             }
         }
         .navigationTitle("Vision Scanner")
+#if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+#endif
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .primaryAction) {
                 if !viewModel.scanResults.isEmpty {
                     Text("\(viewModel.scanResults.count) scanned")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -110,9 +79,11 @@ struct ScannerView: View {
                 Task { await viewModel.unloadModel() }
             }
         }
+#if os(iOS)
         .sheet(isPresented: $viewModel.showCamera) {
             CameraView(image: $viewModel.capturedImage)
         }
+#endif
         .onChange(of: viewModel.capturedImage) { _, newImage in
             if let image = newImage {
                 Task { await viewModel.processImage(image) }
@@ -126,6 +97,7 @@ struct ScannerView: View {
                 }
             }
         }
+#if os(iOS)
         .sheet(isPresented: $viewModel.showExportSheet) {
             if let url = viewModel.exportFileURL {
                 ShareSheet(activityItems: [url])
@@ -136,13 +108,54 @@ struct ScannerView: View {
                 ScriptWebViewSheet(url: url)
             }
         }
+#endif
     }
     
     @State private var animateGradient = false
     
+    private var mainScrollContent: some View {
+        VStack(spacing: 20) {
+            if viewModel.isLoadingModel {
+                loadingModelView
+                    .padding(.horizontal)
+            }
+            
+            if !viewModel.isLoadingModel {
+                templateSelector
+                scanInputArea
+                    .padding(.horizontal)
+            }
+            
+            if let image = viewModel.capturedImage {
+                capturedImagePreview(image)
+                    .padding(.horizontal)
+            }
+            
+            if viewModel.isProcessing {
+                processingIndicator
+                    .padding(.horizontal)
+            }
+            
+            if let result = viewModel.lastResult, !viewModel.isProcessing {
+                extractedDataCard(result)
+                    .padding(.horizontal)
+            }
+            
+            if !viewModel.scanResults.isEmpty {
+                batchListSection
+                    .padding(.horizontal)
+            }
+        }
+        .padding(.bottom, 100)
+    }
+    
     private var scannerBackground: some View {
         ZStack {
+#if os(iOS)
             Color(UIColor.systemBackground).ignoresSafeArea()
+#else
+            Color(NSColor.windowBackgroundColor).ignoresSafeArea()
+#endif
             
             Circle()
                 .fill(viewModel.selectedToolColor.opacity(0.12))
@@ -300,6 +313,7 @@ struct ScannerView: View {
                 .font(.system(size: 13, weight: .semibold, design: .rounded))
                 .foregroundColor(.secondary)
             
+#if os(iOS)
             Image(uiImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
@@ -309,6 +323,17 @@ struct ScannerView: View {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(Color.primary.opacity(0.1), lineWidth: 1)
                 )
+#else
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxHeight: 200)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                )
+#endif
         }
         .padding(16)
         .background(
@@ -843,7 +868,9 @@ struct ScanResultEditSheet: View {
                 }
             }
             .navigationTitle("Edit Result")
+#if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+#endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

@@ -12,6 +12,8 @@ class AppEnvironment: ObservableObject {
     let database: DatabaseManager
     let storage: ToolStorage
     let tools: ToolManager
+    let plugins: NativePluginRegistry
+    let agent: AgentOrchestrator
     let vision: VisionManager
     let whisper: WhisperManager
     
@@ -23,6 +25,8 @@ class AppEnvironment: ObservableObject {
         database: DatabaseManager = .shared,
         storage: ToolStorage = .shared,
         tools: ToolManager = .shared,
+        plugins: NativePluginRegistry = .shared,
+        agent: AgentOrchestrator = .shared,
         vision: VisionManager = .shared,
         whisper: WhisperManager = .shared
     ) {
@@ -33,6 +37,8 @@ class AppEnvironment: ObservableObject {
         self.database = database
         self.storage = storage
         self.tools = tools
+        self.plugins = plugins
+        self.agent = agent
         self.vision = vision
         self.whisper = whisper
     }

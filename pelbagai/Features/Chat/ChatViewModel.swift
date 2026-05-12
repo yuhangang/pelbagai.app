@@ -6,12 +6,12 @@ import AVFAudio
 import UIKit
 #else
 import AppKit
-fileprivate typealias UIImage = NSImage
 #endif
 
 @MainActor
 class ChatViewModel: ObservableObject {
     let sessionId: UUID
+    let initialPrompt: String?
     private let environment: AppEnvironment
     
     @Published var messages: [ChatMessage] = []
@@ -21,6 +21,8 @@ class ChatViewModel: ObservableObject {
     @Published var speechBuffer: [Float] = []
     @Published var showCamera = false
     @Published var capturedImage: UIImage?
+    @Published var pendingImage: UIImage?
+
     
     // Model state mirroring from managers for easier View binding
     @Published var isLoadingModels = false
@@ -31,6 +33,7 @@ class ChatViewModel: ObservableObject {
     @Published var isModelLoaded = false
     @Published var userDefinitionsCount = 0
     @Published var clarificationRequest: ClarificationRequest?
+    @Published var pendingToolCall: PendingToolCall?
     
     private let audioService = AudioService()
     private var cancellables = Set<AnyCancellable>()
@@ -40,9 +43,10 @@ class ChatViewModel: ObservableObject {
         activeTask?.cancel()
     }
     
-    init(sessionId: UUID, environment: AppEnvironment) {
+    init(sessionId: UUID, environment: AppEnvironment, initialPrompt: String? = nil) {
         self.sessionId = sessionId
         self.environment = environment
+        self.initialPrompt = initialPrompt
         
         setupBindings()
     }
@@ -67,6 +71,11 @@ class ChatViewModel: ObservableObject {
         environment.gemma.$clarificationRequest
             .receive(on: RunLoop.main)
             .sink { [weak self] in self?.clarificationRequest = $0 }
+            .store(in: &cancellables)
+
+        environment.agent.$pendingToolCall
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.pendingToolCall = $0 }
             .store(in: &cancellables)
         
         // Bind to MLXModelManager
@@ -102,6 +111,11 @@ class ChatViewModel: ObservableObject {
     
     func loadAllModels() async {
         await environment.gemma.loadModel()
+        
+        // Auto-send initial prompt if provided and no messages exist yet
+        if let prompt = initialPrompt, messages.isEmpty {
+            sendMessage(prompt)
+        }
     }
     
     func handleMicTap() {
@@ -174,15 +188,17 @@ class ChatViewModel: ObservableObject {
         }
     }
     
-    func sendImageMessage(_ image: UIImage) {
+    func sendImageMessage(_ image: UIImage, prompt: String? = nil) {
         let conversationContext = messages
         let imageData = ImageInputPreparer.data(from: image)
+        
+        let content = prompt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? prompt! : "[Image Message]"
         
         let userMessage = ChatMessage(
             id: UUID(),
             sessionId: sessionId,
             role: .user,
-            content: "[Image Message]",
+            content: content,
             imageData: imageData,
             timestamp: Date()
         )
@@ -195,8 +211,8 @@ class ChatViewModel: ObservableObject {
                 await environment.gemma.loadModel()
             }
             
-            let prompt = "Please describe this image."
-            await environment.gemma.generate(prompt: prompt, image: image, history: conversationContext)
+            let finalPrompt = content == "[Image Message]" ? "Please describe this image." : content
+            await environment.gemma.generate(prompt: finalPrompt, image: image, history: conversationContext)
             
             completeGeneration()
         }
@@ -204,6 +220,14 @@ class ChatViewModel: ObservableObject {
     
     func sendTypedMessage() {
         let text = textInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if let image = pendingImage {
+            sendImageMessage(image, prompt: text.isEmpty ? nil : text)
+            pendingImage = nil
+            textInput = ""
+            return
+        }
+        
         guard !text.isEmpty else { return }
         textInput = ""
         
@@ -227,11 +251,19 @@ class ChatViewModel: ObservableObject {
         activeTask = Task { [weak self] in
             guard let self = self else { return }
             if !self.environment.gemma.isModelLoaded {
-                await self.environment.gemma.loadModel()
+                let loaded = await self.environment.gemma.loadModel()
+                guard loaded else {
+                    self.addAssistantMessage("The local model could not be loaded. \(self.environment.gemma.lastErrorMessage ?? "Please free memory and try again.")")
+                    return
+                }
             }
             
-            await self.environment.gemma.generate(prompt: text, history: conversationContext)
-            self.completeGeneration()
+            let result = await self.environment.agent.processText(
+                text,
+                sessionId: self.sessionId,
+                history: conversationContext
+            )
+            self.completeAgentTurn(result)
         }
     }
     
@@ -265,6 +297,48 @@ class ChatViewModel: ObservableObject {
     func handleClarificationChoice(_ choice: String) {
         clarificationRequest = nil
         sendMessage(choice)
+    }
+
+    func confirmPendingToolCall(arguments: [String: String]) {
+        activeTask?.cancel()
+        activeTask = Task { [weak self] in
+            guard let self else { return }
+            let result = await self.environment.agent.confirmPendingToolCall(
+                arguments: arguments,
+                sessionId: self.sessionId
+            )
+            self.completeAgentTurn(result)
+        }
+    }
+
+    func cancelPendingToolCall() {
+        environment.agent.cancelPendingToolCall()
+        pendingToolCall = nil
+        addAssistantMessage("Action cancelled.")
+    }
+
+    func retryLastAgentResponse() {
+        guard !isLoadingModels, !isGenerating else { return }
+        guard let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) else { return }
+
+        let userMessage = messages[lastUserIndex]
+        let retryText = userMessage.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !retryText.isEmpty,
+              userMessage.imageData == nil,
+              retryText != "[Audio Message]",
+              retryText != "[Audio Input]",
+              retryText != "[Image Message]" else {
+            addAssistantMessage("Retry is available for text agent messages only.")
+            return
+        }
+
+        let removedMessages = Array(messages[lastUserIndex...])
+        removedMessages.forEach { environment.database.deleteMessage(id: $0.id) }
+        messages.removeSubrange(lastUserIndex...)
+        environment.agent.cancelPendingToolCall()
+        clarificationRequest = nil
+        pendingToolCall = nil
+        sendMessage(retryText)
     }
     
     // Tool Definition Logic
@@ -321,6 +395,18 @@ class ChatViewModel: ObservableObject {
         messages.append(aiMessage)
         environment.database.addMessage(aiMessage)
     }
+
+    private func completeAgentTurn(_ result: AgentTurnResult) {
+        clarificationRequest = result.clarification
+        pendingToolCall = result.pendingToolCall
+        environment.gemma.response = result.response
+        addAssistantMessage(result.response)
+
+        let ttsEnabled = UserDefaults.standard.bool(forKey: "ttsEnabled")
+        if ttsEnabled && !result.response.isEmpty {
+            environment.speech.speak(result.response)
+        }
+    }
     
     private func toolDefinitionPrompt(for request: String) -> String {
         """
@@ -351,6 +437,7 @@ class ChatViewModel: ObservableObject {
         - Keep prompt focused on visible data extraction. The app runtime appends the JSON/meta-key contract.
         - Use persistent_state only when the user clearly needs cross-scan memory.
         - Use open_url only when the user clearly needs a user-approved link action.
+        - Do not invent native plugins or system integrations. Plugins are trusted Swift capabilities registered by the app, not generated local tools.
         - chainTo must only include specific tool IDs this tool is allowed to hand off to.
         - Do not include markdown fences or explanation outside the JSON object.
         """

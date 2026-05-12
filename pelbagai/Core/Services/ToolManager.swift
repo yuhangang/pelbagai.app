@@ -95,14 +95,47 @@ final class ToolManager: ObservableObject {
         actionName: String,
         result: ScanResult
     ) async throws -> Response {
+        if let plugin = runtimeAction.plugin {
+            return try await response(for: plugin, result: result)
+        }
+
+        guard let request = runtimeAction.request else {
+            throw ToolRuntimeError.invalidResponse
+        }
+
         do {
-            return try await response(for: runtimeAction.request, runtimeAction: runtimeAction, result: result)
+            return try await response(for: request, runtimeAction: runtimeAction, result: result)
         } catch {
             guard let fallbackRequest = runtimeAction.fallbackRequest else {
                 throw error
             }
             return try await response(for: fallbackRequest, runtimeAction: runtimeAction, result: result)
         }
+    }
+
+    private func response(
+        for pluginInvocation: LocalToolDefinition.PluginInvocationDefinition,
+        result: ScanResult
+    ) async throws -> Response {
+        let arguments = resolvedPluginArguments(pluginInvocation.arguments ?? [:], result: result)
+        let pluginResult = try await NativePluginRegistry.shared.execute(
+            pluginID: pluginInvocation.pluginID,
+            capabilityID: pluginInvocation.capabilityID,
+            arguments: arguments
+        )
+
+        var text = pluginResult.summary
+        if let responseField = pluginInvocation.responseField,
+           let fieldValue = pluginResult.data[responseField]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !fieldValue.isEmpty {
+            text = fieldValue
+        }
+
+        return Response(
+            text: text,
+            isHiddenContext: pluginInvocation.hiddenContext ?? pluginResult.isHiddenContext,
+            contextData: pluginResult.data
+        )
     }
 
     private func response(
@@ -202,6 +235,35 @@ final class ToolManager: ObservableObject {
     ) -> String? {
         guard let questionField = runtimeAction.questionField else { return nil }
         return stringValue(for: questionField, in: result)
+    }
+
+    private func resolvedPluginArguments(
+        _ arguments: [String: String],
+        result: ScanResult
+    ) -> [String: String] {
+        arguments.mapValues { template in
+            resolveTemplate(template, result: result)
+        }
+    }
+
+    private func resolveTemplate(_ template: String, result: ScanResult) -> String {
+        var resolved = template
+        let pattern = #"\{([A-Za-z0-9_ -]+)\}"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return resolved
+        }
+
+        let matches = regex.matches(in: template, range: NSRange(template.startIndex..., in: template))
+        for match in matches.reversed() {
+            guard let placeholderRange = Range(match.range(at: 0), in: resolved),
+                  let keyRange = Range(match.range(at: 1), in: template) else {
+                continue
+            }
+            let key = String(template[keyRange])
+            let value = stringValue(for: key, in: result) ?? ""
+            resolved.replaceSubrange(placeholderRange, with: value)
+        }
+        return resolved
     }
 
     private func stringValue(for key: String, in result: ScanResult) -> String? {

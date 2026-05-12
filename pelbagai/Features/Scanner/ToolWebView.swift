@@ -3,6 +3,7 @@ import SwiftUI
 #if canImport(UIKit)
 import UIKit
 import WebKit
+#endif
 
 // MARK: - Message Protocol
 
@@ -12,6 +13,7 @@ struct ToolWebViewMessage: Codable {
     let payload: [String: String]
 }
 
+#if canImport(UIKit)
 // MARK: - ToolWebView (UIViewRepresentable)
 
 /// An embedded WKWebView that loads local HTML strings and supports

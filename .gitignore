@@ -94,6 +94,8 @@ Temporary Items
 # Other
 build/
 DerivedData/
+.derivedData/
+.derived_data/
 *.moved-aside
 .swiftpm/
 .build/

@@ -13,7 +13,7 @@
       "Use empty string \"\" if a field is not visible.",
       "Do NOT include any text before or after the JSON object."
     ],
-    "prompt": "You are an OCR assistant. Extract the delivery address from this parcel/shipping label image. Return ONLY a valid JSON object with these exact keys: {\"Recipient Name\": \"\", \"Address\": \"\", \"Postcode\": \"\", \"City\": \"\", \"State\": \"\", \"Phone\": \"\", \"Tracking Number\": \"\"}",
+    "prompt": "You are an OCR assistant. Extract the delivery address from this parcel/shipping label image. Return ONLY a valid JSON object. Extract all text clearly and use empty strings if a field is not visible.",
     "inputSchema": { "image": "CIImage" },
     "outputSchema": {
       "Recipient Name": "string",
@@ -33,57 +33,95 @@
     "toolID": "business_card",
     "displayName": "Business Card",
     "description": "Extract contact information from this business card image.",
-    "briefing": "Use this tool when scanning physical or digital business cards to capture professional contact details.",
-    "index": ["business card", "contact", "person", "email", "phone"],
+    "briefing": "Use this tool to capture professional contact details from physical or digital business cards with high precision.",
+    "index": ["business card", "contact", "person", "email", "phone", "linkedin"],
     "icon": "person.crop.rectangle.fill",
     "color": "blue",
     "rules": [
       "Return ONLY a valid JSON object.",
-      "Use empty string \"\" if a field is not visible.",
+      "Identify the primary person's name (usually the largest text).",
+      "Clean phone numbers to a standard format (e.g., +1 555-123-4567).",
+      "If multiple phone numbers exist, use 'Mobile' and 'Work Phone' appropriately.",
+      "List social media handles or profile URLs in the 'Social Media' array.",
+      "Use empty string \"\" for missing fields.",
       "Do NOT include any text before or after the JSON object."
     ],
-    "prompt": "You are an OCR assistant. Extract contact information from this business card image. Return ONLY a valid JSON object with these exact keys: {\"Name\": \"\", \"Title\": \"\", \"Company\": \"\", \"Email\": \"\", \"Phone\": \"\", \"Address\": \"\", \"Website\": \"\"}",
+    "prompt": "You are a professional contact extraction assistant. Carefully analyze the business card image. Your goal is to extract ALL professional details with maximum accuracy. Pay close attention to the hierarchy of text to distinguish between the Name, Title, and Company. Extract small details like extensions, department names, and social media icons.",
     "inputSchema": { "image": "CIImage" },
     "outputSchema": {
       "Name": "string",
       "Title": "string",
       "Company": "string",
+      "Department": "string",
       "Email": "string",
-      "Phone": "string",
+      "Mobile": "string",
+      "Work Phone": "string",
       "Address": "string",
-      "Website": "string"
+      "Website": "string",
+      "Social Media": "list of strings"
     },
     "stateSchema": {},
     "capabilities": ["scan_image", "export_csv"],
-    "examples": []
+    "examples": [
+      {
+        "Name": "Sarah Jenkins",
+        "Title": "Senior Account Manager",
+        "Company": "Global Logistics Solutions",
+        "Department": "Sales & Marketing",
+        "Email": "s.jenkins@globallogistics.com",
+        "Mobile": "+1 202-555-0198",
+        "Work Phone": "+1 202-555-0100 ext. 402",
+        "Address": "450 Industrial Way, Suite 200, Seattle, WA 98101",
+        "Website": "www.globallogistics.com",
+        "Social Media": "[\"linkedin.com/in/sjenkins-logistics\", \"@sjenkins_sales\"]"
+      }
+    ]
   },
   {
     "schemaVersion": 1,
     "toolID": "receipt",
     "displayName": "Receipt",
     "description": "Extract key information from this receipt image.",
-    "briefing": "Use this tool for retail, dining, or service receipts to track spending and items.",
-    "index": ["receipt", "bill", "invoice", "payment", "store"],
+    "briefing": "Use this tool for retail, dining, or service receipts to track spending, itemized purchases, and taxes.",
+    "index": ["receipt", "bill", "invoice", "payment", "store", "expense"],
     "icon": "receipt",
     "color": "green",
     "rules": [
       "Return ONLY a valid JSON object.",
-      "For Items, list them as a comma-separated string.",
+      "Extract individual line items into the 'Items' array.",
+      "For each item, include the name and price if possible (e.g., 'Apple - $1.50').",
+      "Identify the currency symbol or code.",
+      "Capture both Date and Time if visible.",
       "Do NOT include any text before or after the JSON object."
     ],
-    "prompt": "You are an OCR assistant. Extract key information from this receipt image. Return ONLY a valid JSON object with these exact keys: {\"Store Name\": \"\", \"Date\": \"\", \"Total\": \"\", \"Tax\": \"\", \"Payment Method\": \"\", \"Items\": \"\"}",
+    "prompt": "You are a specialized financial OCR assistant. Your task is to digitize this receipt. Extract the merchant name, full address, date/time, and a detailed list of all items purchased. Ensure the Total accurately reflects the final amount paid including taxes and tips.",
     "inputSchema": { "image": "CIImage" },
     "outputSchema": {
       "Store Name": "string",
+      "Address": "string",
       "Date": "string",
+      "Time": "string",
+      "Currency": "string",
       "Total": "string",
       "Tax": "string",
       "Payment Method": "string",
-      "Items": "string"
+      "Items": "list of strings"
     },
     "stateSchema": {},
     "capabilities": ["scan_image", "export_csv"],
-    "examples": []
+    "examples": [
+      {
+        "Store Name": "Whole Foods Market",
+        "Address": "2501 Pennsylvania Ave NW, Washington, DC 20037",
+        "Date": "2024-05-12",
+        "Time": "14:35",
+        "Currency": "USD",
+        "Total": "$42.15",
+        "Tax": "$2.15",
+        "Payment Method": "Visa ****1234",
+        "Items": "[\"Organic Bananas - $2.50\", \"Almond Milk - $4.99\", \"Whole Wheat Bread - $3.50\", \"Avocados (3) - $6.00\"]"
+      }
+    ]
   },
   {
     "schemaVersion": 1,
@@ -98,7 +136,7 @@
       "Return ONLY a valid JSON object.",
       "Do NOT include any text before or after the JSON object."
     ],
-    "prompt": "You are an OCR assistant. Extract all readable text from this document image. Return ONLY a valid JSON object with these exact keys: {\"Title\": \"\", \"Content\": \"\", \"Date\": \"\", \"Author\": \"\", \"Notes\": \"\"}",
+    "prompt": "You are an OCR assistant. Extract all readable text from this document image. Return ONLY a valid JSON object. Extract all text clearly and use empty strings if a field is not visible.",
     "inputSchema": { "image": "CIImage" },
     "outputSchema": {
       "Title": "string",

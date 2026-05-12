@@ -7,7 +7,6 @@ import CoreImage
 import UIKit
 #else
 import AppKit
-fileprivate typealias UIImage = NSImage
 #endif
 
 @MainActor

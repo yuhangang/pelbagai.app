@@ -6,7 +6,6 @@ import CoreImage
 import UIKit
 #else
 import AppKit
-fileprivate typealias UIImage = NSImage
 #endif
 
 // MARK: - Capability Block Container
@@ -28,7 +27,6 @@ struct CapabilityGridView: View {
     @StateObject private var exporter = ExcelExporter()
     
     private let columns = [
-        GridItem(.flexible(), spacing: 12),
         GridItem(.flexible(), spacing: 12)
     ]
     
@@ -52,11 +50,19 @@ struct CapabilityGridView: View {
                 isModelLoaded: env.vision.isModelLoaded
             )
         case .exportCSV:
+            let lastResult = env.vision.lastResult
+            let hasActiveResult = lastResult?.toolID == tool.toolID && !env.vision.isProcessing
+            let totalCount = savedResults.count + (hasActiveResult ? 1 : 0)
+            
             ExportCSVBlock(
                 toolColor: toolColor,
-                resultCount: savedResults.count,
+                resultCount: totalCount,
                 onExport: {
-                    if let url = exporter.exportToCSV(results: savedResults) {
+                    var resultsToExport = savedResults
+                    if hasActiveResult, let last = lastResult {
+                        resultsToExport.insert(last, at: 0)
+                    }
+                    if let url = exporter.exportToCSV(results: resultsToExport) {
                         exportFileURL = url
                         showExportSheet = true
                     }
@@ -272,6 +278,8 @@ struct OpenURLBlock: View {
                                ["http", "https"].contains(scheme) {
                                 #if os(iOS)
                                 UIApplication.shared.open(url)
+                                #elseif os(macOS)
+                                NSWorkspace.shared.open(url)
                                 #endif
                             }
                         } label: {
@@ -393,38 +401,61 @@ struct ResultsBlock: View {
             
             Divider()
             
-            // Fields
-            ForEach(result.sortedKeys, id: \.self) { key in
-                if let fv = result.richFields[key] {
-                    if fv.isList {
-                        HStack(alignment: .top, spacing: 10) {
-                            Text(key)
-                                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                .foregroundColor(.secondary)
-                                .frame(width: 80, alignment: .trailing)
-                            VStack(alignment: .leading, spacing: 4) {
-                                ForEach(Array(fv.asList.enumerated()), id: \.offset) { _, item in
-                                    HStack(spacing: 5) {
-                                        Circle().fill(toolColor).frame(width: 4, height: 4)
-                                        Text(item).font(.system(size: 13, design: .rounded))
+            // Fields (Table Block)
+            if !result.sortedKeys.isEmpty {
+                VStack(spacing: 0) {
+                    ForEach(Array(result.sortedKeys.enumerated()), id: \.element) { index, key in
+                        if let fv = result.richFields[key] {
+                            HStack(alignment: .top, spacing: 16) {
+                                // Key column
+                                Text(key)
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundColor(.secondary)
+                                    .frame(width: 100, alignment: .trailing)
+                                    .padding(.top, 2)
+                                
+                                Divider()
+                                
+                                // Value column
+                                if fv.isList {
+                                    VStack(alignment: .leading, spacing: 8) {
+                                        ForEach(Array(fv.asList.enumerated()), id: \.offset) { _, item in
+                                            HStack(alignment: .top, spacing: 6) {
+                                                Circle()
+                                                    .fill(toolColor)
+                                                    .frame(width: 5, height: 5)
+                                                    .offset(y: 7)
+                                                Text(item)
+                                                    .font(.system(size: 16, design: .rounded))
+                                                    .foregroundColor(.primary)
+                                            }
+                                        }
                                     }
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                } else {
+                                    Text(fv.flatString.isEmpty ? "—" : fv.flatString)
+                                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                                        .foregroundColor(fv.flatString.isEmpty ? .secondary : .primary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 }
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                    } else {
-                        HStack(alignment: .top, spacing: 10) {
-                            Text(key)
-                                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                .foregroundColor(.secondary)
-                                .frame(width: 80, alignment: .trailing)
-                            Text(fv.flatString.isEmpty ? "—" : fv.flatString)
-                                .font(.system(size: 14, design: .rounded))
-                                .foregroundColor(fv.flatString.isEmpty ? .secondary : .primary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 14)
+                            .padding(.horizontal, 16)
+                            .background(index % 2 == 0 ? Color.primary.opacity(0.04) : Color.clear)
+                            
+                            if index < result.sortedKeys.count - 1 {
+                                Divider()
+                            }
                         }
                     }
                 }
+                .background(Color(UIColor.systemBackground).opacity(0.5))
+                .overlay(
+                    Rectangle()
+                        .stroke(Color.primary.opacity(0.1), lineWidth: 1)
+                )
+                .padding(.horizontal, -16)
+                .padding(.vertical, 8)
             }
             
             // Script notes
@@ -629,12 +660,21 @@ struct ResponseBlock: View {
             
             VStack(alignment: isUser ? .trailing : .leading, spacing: 10) {
                 if let image = image {
+#if os(iOS)
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
                         .frame(maxHeight: 180)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .shadow(color: Color.black.opacity(0.1), radius: 5, y: 2)
+#else
+                    Image(nsImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxHeight: 180)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .shadow(color: Color.black.opacity(0.1), radius: 5, y: 2)
+#endif
                 } else if let urlStr = imageURL, let url = URL(string: urlStr) {
                     AsyncImage(url: url) { phase in
                         switch phase {

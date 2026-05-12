@@ -225,7 +225,7 @@ class VisionManager: ObservableObject {
                             return nil
                         }
                         if !items.isEmpty { richFields[key] = .list(items) }
-                    } else if let stringValue = value as? String, !stringValue.isEmpty {
+                    } else if let stringValue = value as? String {
                         richFields[key] = .string(stringValue)
                     } else if let numValue = value as? NSNumber {
                         richFields[key] = .string(numValue.stringValue)
@@ -234,10 +234,13 @@ class VisionManager: ObservableObject {
                 
                 let numericIsValid = (json["_isValid"] as? Int).map { $0 == 1 }
                     ?? (json["isValid"] as? Int).map { $0 == 1 }
+                
+                let nonEmptyCount = richFields.values.filter { !$0.isEmpty }.count
+                
                 let isValid = (json["_isValid"] as? Bool)
                     ?? (json["isValid"] as? Bool)
                     ?? numericIsValid
-                    ?? (richFields.count >= 2)
+                    ?? (nonEmptyCount >= 2)
                 
                 return ScanResult(
                     toolID: definition.toolID,

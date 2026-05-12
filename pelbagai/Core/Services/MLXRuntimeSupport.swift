@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import Hub
 import MLXLMCommon
 import MLXVLM
@@ -88,7 +89,13 @@ func loadRemoteModelContainer(
     configuration: ModelConfiguration,
     progressHandler: @Sendable @escaping (Progress) -> Void = { _ in }
 ) async throws -> ModelContainer {
-    let hub = HubApi()
+    // This Hub package build treats `useOfflineMode: false` as advisory and can
+    // still force the local-cache-only branch when NWPath reports constrained or
+    // expensive connectivity. Disable that heuristic so first-run model loads
+    // attempt real network fetches and fail with actual transport errors when
+    // offline instead of the misleading "Repository not available locally".
+    let hub = HubApi(useOfflineMode: false)
+    setenv("CI_DISABLE_NETWORK_MONITOR", "1", 1)
 
     if configuration.name.contains("gemma-4-") {
         return try await VLMModelFactory.shared.loadContainer(
@@ -139,6 +146,6 @@ enum MemoryStats {
 
     /// Total physical memory in GB.
     static var totalMemoryGB: Double {
-        Double(ProcessInfo.processInfo.physicalMemory) / (1024 * 1024 * 1024)
+        Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824.0
     }
 }

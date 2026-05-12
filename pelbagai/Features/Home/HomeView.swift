@@ -69,12 +69,13 @@ struct HomeView: View {
             isLoadingModels: viewModel.isLoadingModels,
             isModelLoaded: viewModel.isModelLoaded,
             userDefinitionsCount: viewModel.userDefinitionsCount,
+            pendingImage: $viewModel.pendingImage,
             onMicTap: { }, onCameraTap: { },
             onSend: {
                 let id = viewModel.startNewQuickChat()
                 isChatBarFocused = false
                 selectedItem = .chat(id)
-            }
+            },
         )
         .focused($isChatBarFocused)
         .padding(.bottom, 20)

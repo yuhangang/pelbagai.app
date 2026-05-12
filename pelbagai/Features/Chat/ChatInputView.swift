@@ -32,6 +32,8 @@ struct ChatInputView: View {
     var isModelLoaded: Bool
     var userDefinitionsCount: Int
     
+    @Binding var pendingImage: UIImage?
+    
     var onMicTap: () -> Void
     var onCameraTap: () -> Void
     var onSend: () -> Void
@@ -43,90 +45,104 @@ struct ChatInputView: View {
         VStack(spacing: 0) {
             inputModeSelector
             
-            HStack(spacing: 12) {
-                // Text input field
-                HStack {
-                    TextField(inputMode.placeholder, text: $textInput)
-                        .font(.system(size: 16, design: .rounded))
-                        .foregroundColor(.primary)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                        .disabled(!isModelLoaded)
+            VStack(spacing: 8) {
+                // Pending Image Preview
+                if let image = pendingImage {
+                    HStack {
+                        ZStack(alignment: .topTrailing) {
+                            Image(uiImage: image)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: 60, height: 60)
+                                .cornerRadius(12)
+                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.1), lineWidth: 1))
+                            
+                            Button {
+                                withAnimation {
+                                    pendingImage = nil
+                                }
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.gray)
+                                    .background(Circle().fill(Color.white))
+                            }
+                            .offset(x: 8, y: -8)
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+
+                HStack(spacing: 12) {
+                    // Text input field
+                    HStack {
+                        TextField(inputMode.placeholder, text: $textInput)
+                            .font(.system(size: 16, design: .rounded))
+                            .foregroundColor(.primary)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .disabled(!isModelLoaded)
+                        
+                        if !textInput.isEmpty || pendingImage != nil {
+                            Button(action: onSend) {
+                                Image(systemName: "arrow.up")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundColor(colorScheme == .dark ? .black : .white)
+                                    .frame(width: 30, height: 30)
+                                    .background(Color.primary)
+                                    .clipShape(Circle())
+                            }
+                            .padding(.trailing, 6)
+                            .disabled(isGenerating)
+                        }
+                    }
+                    .background(Color.primary.opacity(0.05))
+                    .clipShape(Capsule())
+                    .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 1))
                     
-                    if !textInput.isEmpty {
-                        Button(action: onSend) {
-                            Image(systemName: "arrow.up")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundColor(colorScheme == .dark ? .black : .white)
-                                .frame(width: 32, height: 32)
-                                .background(Color.primary)
-                                .clipShape(Circle())
-                        }
-                        .padding(.trailing, 6)
-                        .disabled(isGenerating)
-                    }
-                }
-                .background(Color.primary.opacity(0.05))
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 1))
-                
-                // Camera button
-                Button(action: onCameraTap) {
-                    ZStack {
-                        Circle()
-                            .fill(LinearGradient(colors: [.indigo.opacity(0.8), .blue.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                            .frame(width: 48, height: 48)
-                            .shadow(color: Color.indigo.opacity(0.3), radius: 8, x: 0, y: 0)
-                        
+                    // Camera button
+                    Button(action: onCameraTap) {
                         Image(systemName: "camera.fill")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.white)
+                            .font(.system(size: 20))
+                            .foregroundColor(.primary.opacity(0.7))
+                            .frame(width: 36, height: 36)
                     }
-                }
-                .disabled(isLoadingModels || isGenerating)
-                .opacity(isLoadingModels ? 0.4 : 1.0)
-                
-                // Mic button
-                Button(action: onMicTap) {
-                    ZStack {
-                        Circle()
-                            .fill(
-                                isRecording
-                                ? LinearGradient(colors: [.red, .orange], startPoint: .topLeading, endPoint: .bottomTrailing)
-                                : LinearGradient(colors: [.cyan.opacity(0.8), .purple.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                            )
-                            .frame(width: 48, height: 48)
-                            .shadow(
-                                color: (isRecording ? Color.red : Color.cyan).opacity(isRecording ? 0.6 : 0.3),
-                                radius: isRecording ? 15 : 8, x: 0, y: 0
-                            )
-                        
-                        if isRecording {
-                            Circle()
-                                .stroke(Color.primary.opacity(0.5), lineWidth: 2)
-                                .frame(width: 56, height: 56)
-                                .scaleEffect(animateGradient ? 1.2 : 1.0)
-                                .opacity(animateGradient ? 0 : 1)
-                                .animation(.easeOut(duration: 1.0).repeatForever(autoreverses: false), value: animateGradient)
+                    .disabled(isLoadingModels || isGenerating)
+                    .opacity(isLoadingModels ? 0.4 : 1.0)
+                    
+                    // Mic button
+                    Button(action: onMicTap) {
+                        ZStack {
+                            if isRecording {
+                                Circle()
+                                    .stroke(Color.red.opacity(0.3), lineWidth: 2)
+                                    .frame(width: 40, height: 40)
+                                    .scaleEffect(animateGradient ? 1.2 : 1.0)
+                                    .opacity(animateGradient ? 0 : 1)
+                                    .animation(.easeOut(duration: 1.0).repeatForever(autoreverses: false), value: animateGradient)
+                            }
+                            
+                            Image(systemName: isRecording ? "waveform" : "mic.fill")
+                                .font(.system(size: 20))
+                                .foregroundColor(isRecording ? .red : .primary.opacity(0.7))
+                                .frame(width: 36, height: 36)
                         }
-                        
-                        Image(systemName: isRecording ? "waveform" : "mic.fill")
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(.white)
                     }
+                    .disabled(isLoadingModels || isGenerating)
+                    .opacity(isLoadingModels ? 0.4 : 1.0)
                 }
-                .disabled(isLoadingModels || isGenerating)
-                .opacity(isLoadingModels ? 0.4 : 1.0)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    Capsule()
+                        .fill(.ultraThinMaterial)
+                        .shadow(color: Color.primary.opacity(0.05), radius: 5, y: 2)
+                        .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
+                )
+                .padding(.horizontal)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(
-                Capsule()
-                    .fill(.ultraThinMaterial)
-                    .shadow(color: Color.primary.opacity(0.15), radius: 10, y: 5)
-                    .overlay(Capsule().stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
-            )
-            .padding(.horizontal)
         }
         .onAppear {
             withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {

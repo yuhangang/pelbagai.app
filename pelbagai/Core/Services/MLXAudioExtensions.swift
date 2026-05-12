@@ -10,8 +10,8 @@ import AppKit
 #endif
 
 enum ImageInputPreparer {
-    private static let maxDimension: CGFloat = 1_024
-    private static let compressionQuality: CGFloat = 0.78
+    private static let maxDimension: CGFloat = 2_048
+    private static let compressionQuality: CGFloat = 0.95
 
     #if canImport(UIKit)
     static func ciImage(from image: UIImage) -> CIImage? {

@@ -34,6 +34,10 @@ class MLXModelManager: ObservableObject {
     @Published var status: String = ""
     @Published var currentModelID: String?
     @Published var isForeground: Bool = true
+
+    private var activeLoadTask: Task<ModelContainer, Error>?
+    private var activeLoadModelID: String?
+    private var activeLoadToken: UUID?
     
     private init() {
         let cacheLimit = Self.recommendedCacheLimit(forPhysicalMemory: ProcessInfo.processInfo.physicalMemory)
@@ -68,6 +72,18 @@ class MLXModelManager: ObservableObject {
         if isLoaded && currentModelID == modelID {
             return
         }
+
+        if let activeLoadTask {
+            if activeLoadModelID == modelID {
+                _ = try await activeLoadTask.value
+                return
+            }
+
+            _ = try await activeLoadTask.value
+            if isLoaded && currentModelID == modelID {
+                return
+            }
+        }
         
         // Unload existing if different
         if currentModelID != modelID {
@@ -75,19 +91,21 @@ class MLXModelManager: ObservableObject {
         }
         
         isLoading = true
-        defer { isLoading = false }
+        activeLoadModelID = modelID
+        let loadToken = UUID()
+        activeLoadToken = loadToken
         
         status = "Initializing..."
         print("🧠 [MLXModelManager] Loading model: \(modelID)")
 
-        do {
+        let loadTask = Task<ModelContainer, Error> {
             let modelConfig: ModelConfiguration
             if modelID.contains("gemma-4-") {
                 modelConfig = VLMModelFactory.shared.configuration(id: modelID)
             } else {
                 modelConfig = ModelConfiguration(id: modelID)
             }
-            let newContainer = try await loadRemoteModelContainer(
+            return try await loadRemoteModelContainer(
                 configuration: modelConfig,
                 progressHandler: { progress in
                     let percent = Int(progress.fractionCompleted * 100)
@@ -101,13 +119,31 @@ class MLXModelManager: ObservableObject {
                     progressHandler(progress)
                 }
             )
-            
+        }
+        activeLoadTask = loadTask
+
+        defer {
+            if activeLoadToken == loadToken {
+                activeLoadTask = nil
+                activeLoadModelID = nil
+                activeLoadToken = nil
+            }
+            isLoading = false
+        }
+
+        do {
+            let newContainer = try await loadTask.value
             self.container = newContainer
             self.currentModelID = modelID
             self.isLoaded = true
             self.status = "Ready"
             print("🧠 [MLXModelManager] Model loaded successfully")
         } catch {
+            if activeLoadModelID == modelID {
+                self.container = nil
+                self.currentModelID = nil
+                self.isLoaded = false
+            }
             self.status = "Load failed: \(error.localizedDescription)"
             print("🧠 [MLXModelManager] Load failed: \(error)")
             throw error

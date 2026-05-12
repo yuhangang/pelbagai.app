@@ -12,7 +12,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section(header: Text("Model Configuration"), footer: Text("Select the AI model you want to use. Larger models may take longer to load.")) {
+                Section(header: Text("Model Configuration"), footer: Text("Select the AI model you want to use. Larger models may take longer to load. First use downloads model weights and keeps them on-device for later offline use.")) {
                     Picker("Active Model", selection: Binding(
                         get: { viewModel.selectedModel },
                         set: { viewModel.switchModel(to: $0) }
@@ -31,6 +31,13 @@ struct SettingsView: View {
                                 .foregroundColor(.secondary)
                         }
                     }
+
+                    Label(
+                        viewModel.selectedModel.isDownloaded ? "Stored locally on this device" : "Will download when you load it the first time",
+                        systemImage: viewModel.selectedModel.isDownloaded ? "internaldrive.fill" : "arrow.down.circle"
+                    )
+                    .font(.caption)
+                    .foregroundColor(.secondary)
                 }
                 
                 Section(header: Text("Appearance")) {

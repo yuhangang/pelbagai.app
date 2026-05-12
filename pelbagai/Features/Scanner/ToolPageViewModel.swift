@@ -7,7 +7,6 @@ import CoreImage
 import UIKit
 #else
 import AppKit
-fileprivate typealias UIImage = NSImage
 #endif
 
 @MainActor
@@ -19,6 +18,8 @@ class ToolPageViewModel: ObservableObject {
     @Published var textInput: String = ""
     @Published var selectedPhotoItem: PhotosPickerItem?
     @Published var capturedImage: UIImage?
+    @Published var pendingImage: UIImage?
+
     @Published var showCamera = false
     @Published var showExportSheet = false
     @Published var exportFileURL: URL?
@@ -104,6 +105,16 @@ class ToolPageViewModel: ObservableObject {
     
     func sendTextInput() {
         let text = textInput.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if let image = pendingImage {
+            let userPrompt = text.isEmpty ? "📷 Image captured" : text
+            promptResponses.append(ToolPromptResponse(text: userPrompt, isUser: true, image: image))
+            pendingImage = nil
+            textInput = ""
+            Task { await processImage(image, customPrompt: text.isEmpty ? nil : text) }
+            return
+        }
+        
         guard !text.isEmpty else { return }
         
         promptResponses.append(ToolPromptResponse(text: text, isUser: true))
@@ -204,16 +215,14 @@ class ToolPageViewModel: ObservableObject {
     
     func handlePhotoSelection(_ item: PhotosPickerItem?) async {
         guard let item else { return }
-        if !environment.vision.isModelLoaded { await environment.vision.loadModel() }
-        
         if let data = try? await item.loadTransferable(type: Data.self),
            let uiImage = UIImage(data: data) {
-            promptResponses.append(ToolPromptResponse(text: "📷 Image selected", isUser: true, image: uiImage))
-            await processImage(uiImage)
+            pendingImage = uiImage
         }
     }
     
-    func processImage(_ image: UIImage) async {
+    func processImage(_ image: UIImage, customPrompt: String? = nil) async {
+
         guard let ciImage = ImageInputPreparer.ciImage(from: image) else {
             promptResponses.append(ToolPromptResponse(text: "Failed to process image", isUser: false))
             return
@@ -221,7 +230,25 @@ class ToolPageViewModel: ObservableObject {
         if !environment.vision.isModelLoaded {
             await environment.vision.loadModel()
         }
-        let result = await environment.vision.scan(image: ciImage, definition: tool)
+        
+        let result: ScanResult?
+        if let prompt = customPrompt {
+            // If there's a custom prompt, we use Gemma to generate the output based on image and prompt
+            let history = Array(toolInteractionHistory().suffix(2))
+            await environment.gemma.generateToolOutput(
+                text: prompt,
+                definition: tool,
+                history: history,
+                stateOverride: toolStateOverride()
+            )
+            let output = environment.gemma.response
+            if !output.isEmpty {
+                handleModelTextOutput(output)
+            }
+            return
+        } else {
+            result = await environment.vision.scan(image: ciImage, definition: tool)
+        }
 
         if let result {
             let execution = await environment.tools.execute(result: result, definition: tool)
@@ -277,7 +304,12 @@ class ToolPageViewModel: ObservableObject {
     }
     
     func exportCurrentResults() {
-        if let url = exporter.exportToCSV(results: savedResults) {
+        var resultsToExport = savedResults
+        if let last = environment.vision.lastResult, last.toolID == toolID {
+            resultsToExport.insert(last, at: 0)
+        }
+        
+        if let url = exporter.exportToCSV(results: resultsToExport) {
             exportFileURL = url
             showExportSheet = true
         }
@@ -304,9 +336,13 @@ class ToolPageViewModel: ObservableObject {
                 promptResponses.append(ToolPromptResponse(text: msg, isUser: false))
             }
         case .open:
-#if canImport(UIKit)
+#if os(iOS)
             if let urlStr = payload["url"], let url = URL(string: urlStr) {
                 UIApplication.shared.open(url)
+            }
+#elseif os(macOS)
+            if let urlStr = payload["url"], let url = URL(string: urlStr) {
+                NSWorkspace.shared.open(url)
             }
 #endif
         default:
@@ -364,9 +400,13 @@ class ToolPageViewModel: ObservableObject {
                 promptResponses.append(ToolPromptResponse(text: msg, isUser: false))
             }
         case "navigate":
-#if canImport(UIKit)
+#if os(iOS)
             if let urlStr = message.payload["url"], let url = URL(string: urlStr) {
                 UIApplication.shared.open(url)
+            }
+#elseif os(macOS)
+            if let urlStr = message.payload["url"], let url = URL(string: urlStr) {
+                NSWorkspace.shared.open(url)
             }
 #endif
         default: break
