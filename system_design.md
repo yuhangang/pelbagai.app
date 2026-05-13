@@ -32,6 +32,16 @@ includes the increased-memory-limit entitlement as a best-effort hint for
 supported devices, but runtime behavior must remain correct when iOS does not
 grant extra memory.
 
+`ImageInputPreparer` is the image-ingest boundary for chat, scanner, and tool
+page multimodal input. Photo-library data is downsampled with ImageIO before a
+`UIImage` is created, and camera originals are immediately normalized before
+being passed to Gemma or persisted as chat image data. This keeps the heavy
+vision-preprocessing window from retaining full-resolution camera bitmaps.
+Gemma 4 image turns use a conservative default visual soft-token budget, and
+both `gemma4` and `gemma4_audio` model config aliases are registered through the
+app runtime wrapper so image-only turns do not load the audio tower unless audio
+capability has been explicitly enabled.
+
 `GemmaManager.switchModel(to:)` is a transactional app-level selection change:
 the replacement model must load successfully before the selection is persisted.
 If a switch fails after unloading the previous weights, the manager attempts to
@@ -199,6 +209,20 @@ Planned examples:
   create an export-ready record.
 - Human-in-loop action: ask the user before opening a URL, invoking another
   tool, exporting data, or performing any externally visible action.
+
+### Vectorized RAG Example
+
+The application includes a `knowledge_base` tool that demonstrates a Vectorized Retrieval-Augmented Generation (RAG) workflow. This tool allows the model to:
+
+1.  **Retrieve**: Perform a semantic search (simulated by `vector_search` capability) against locally indexed documents.
+2.  **Augment**: Inject the retrieved snippets (e.g., wilderness survival tips) into the model's context.
+3.  **Generate**: Produce a high-quality, grounded response based on the retrieved facts.
+
+Example Workflow:
+- User: "I'm lost in the woods, what should I do?"
+- Agent: Routes to `knowledge_base` tool with query "wilderness survival tips".
+- Result: Retrieves tips on Shelter, Water, Fire, and Signaling from `survival_tips_archive.txt`.
+- Output: "According to the survival manual, your first priority is shelter..."
 
 `ToolAction` can evolve beyond `openURL` with typed cases such as `invokeTool`
 and `exportCSV`. These actions must remain declarative data. Model output may

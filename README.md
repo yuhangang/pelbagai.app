@@ -31,6 +31,12 @@ a text-turn retry action that replays the last user message after removing the
 failed assistant output. The iOS build also declares Apple's increased-memory-
 limit entitlement for supported devices; the app must still handle normal iOS
 memory limits because extra memory is not guaranteed on every device.
+Image input is downsampled through ImageIO before chat or scanner inference so
+camera and photo-library originals are not kept at full decoded size while Gemma
+vision preprocessing runs. Image-only Gemma 4 turns also keep the visual soft
+token budget conservative and route both `gemma4` and `gemma4_audio` config
+aliases through the app runtime wrapper so the audio tower stays disabled unless
+audio capability is explicitly enabled.
 
 System integration now goes through Swift-native plugins registered by
 `NativePluginRegistry`. Plugins are trusted compile-time code, not dynamic JSON

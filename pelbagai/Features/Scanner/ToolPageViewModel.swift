@@ -11,7 +11,7 @@ import AppKit
 
 @MainActor
 class ToolPageViewModel: ObservableObject {
-    let toolID: String
+    @Published var toolID: String
     private let environment: AppEnvironment
     
     @Published var savedResults: [ScanResult] = []
@@ -34,6 +34,7 @@ class ToolPageViewModel: ObservableObject {
     @Published var isProcessing = false
     @Published var status = ""
     @Published var lastResult: ScanResult?
+    @Published var allDefinitions: [LocalToolDefinition] = []
     
     private let exporter = ExcelExporter()
     private var cancellables = Set<AnyCancellable>()
@@ -44,6 +45,14 @@ class ToolPageViewModel: ObservableObject {
         
         setupBindings()
         loadStoredResults()
+    }
+    
+    func switchToTool(_ newToolID: String) {
+        guard newToolID != toolID else { return }
+        toolID = newToolID
+        resetSessionState()
+        loadStoredResults()
+        promptResponses.removeAll()
     }
     
     private func setupBindings() {
@@ -71,6 +80,11 @@ class ToolPageViewModel: ObservableObject {
             .sink { [weak self] in self?.lastResult = $0 }
             .store(in: &cancellables)
         
+        environment.registry.$allDefinitions
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.allDefinitions = $0 }
+            .store(in: &cancellables)
+
         Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
             .sink { [weak self] _ in
                 guard let self = self else { return }
@@ -163,6 +177,12 @@ class ToolPageViewModel: ObservableObject {
             scanResult.state = stateOverride
         }
         environment.vision.lastResult = scanResult
+        
+        // Auto-save agentic extractions if they are validated
+        if scanResult.isValidated && scanResult.hasData {
+            environment.storage.save(scanResult, to: toolID)
+            loadStoredResults()
+        }
 
         Task { [weak self] in
             guard let self = self else { return }
@@ -216,14 +236,15 @@ class ToolPageViewModel: ObservableObject {
     func handlePhotoSelection(_ item: PhotosPickerItem?) async {
         guard let item else { return }
         if let data = try? await item.loadTransferable(type: Data.self),
-           let uiImage = UIImage(data: data) {
+           let uiImage = ImageInputPreparer.image(from: data) {
             pendingImage = uiImage
         }
     }
     
     func processImage(_ image: UIImage, customPrompt: String? = nil) async {
 
-        guard let ciImage = ImageInputPreparer.ciImage(from: image) else {
+        let preparedImage = ImageInputPreparer.preparedForModel(image)
+        guard let ciImage = ImageInputPreparer.ciImage(from: preparedImage) else {
             promptResponses.append(ToolPromptResponse(text: "Failed to process image", isUser: false))
             return
         }
@@ -233,19 +254,8 @@ class ToolPageViewModel: ObservableObject {
         
         let result: ScanResult?
         if let prompt = customPrompt {
-            // If there's a custom prompt, we use Gemma to generate the output based on image and prompt
-            let history = Array(toolInteractionHistory().suffix(2))
-            await environment.gemma.generateToolOutput(
-                text: prompt,
-                definition: tool,
-                history: history,
-                stateOverride: toolStateOverride()
-            )
-            let output = environment.gemma.response
-            if !output.isEmpty {
-                handleModelTextOutput(output)
-            }
-            return
+            // Use VisionManager to scan the image with the custom prompt, rather than generateToolOutput which ignores the image
+            result = await environment.vision.scan(image: ciImage, definition: tool, customPrompt: prompt)
         } else {
             result = await environment.vision.scan(image: ciImage, definition: tool)
         }
@@ -255,6 +265,12 @@ class ToolPageViewModel: ObservableObject {
             environment.vision.lastResult = execution.scanResult
             lastResult = execution.scanResult
             appendToolResponses(execution.responses)
+            
+            // Auto-save scanned results if they are validated
+            if execution.scanResult.isValidated && execution.scanResult.hasData {
+                environment.storage.save(execution.scanResult, to: toolID)
+                loadStoredResults()
+            }
         }
         
         if let res = result,

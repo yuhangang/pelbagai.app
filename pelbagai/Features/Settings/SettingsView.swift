@@ -40,6 +40,24 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
                 }
                 
+                Section(header: Text("Compute Backend"), footer: Text("GPU (Metal) is recommended for speed. CPU can be more stable if you encounter out-of-memory crashes with large models.")) {
+                    Picker("Inference Backend", selection: Binding(
+                        get: { viewModel.preferredBackend },
+                        set: { viewModel.switchBackend(to: $0) }
+                    )) {
+                        ForEach(MLXBackend.allCases) { backend in
+                            Text(backend.displayName).tag(backend)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    
+                    if viewModel.preferredBackend == .cpu {
+                        Label("Running on CPU is significantly slower.", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                }
+                
                 Section(header: Text("Appearance")) {
                     Picker("Theme", selection: $appTheme) {
                         ForEach(AppTheme.allCases) { theme in

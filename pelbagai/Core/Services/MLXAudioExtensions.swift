@@ -1,5 +1,6 @@
 import Foundation
 import CoreImage
+import ImageIO
 import MLX
 import MLXLMCommon
 
@@ -10,29 +11,66 @@ import AppKit
 #endif
 
 enum ImageInputPreparer {
-    private static let maxDimension: CGFloat = 2_048
-    private static let compressionQuality: CGFloat = 0.95
+    private static let maxDimension: CGFloat = 1_024
+    private static let compressionQuality: CGFloat = 0.85
 
     #if canImport(UIKit)
     static func ciImage(from image: UIImage) -> CIImage? {
-        let prepared = preparedImage(image, maxDimension: maxDimension)
-        guard let data = prepared.jpegData(compressionQuality: compressionQuality)
-            ?? prepared.pngData() else {
-            if let ciImage = prepared.ciImage { return ciImage }
-            if let cgImage = prepared.cgImage { return CIImage(cgImage: cgImage) }
-            return CIImage(image: prepared)
-        }
+        autoreleasepool {
+            guard let data = data(from: image) else {
+                if let ciImage = image.ciImage { return ciImage }
+                if let cgImage = image.cgImage { return CIImage(cgImage: cgImage) }
+                return CIImage(image: image)
+            }
 
-        return CIImage(data: data, options: [.applyOrientationProperty: true])
-            ?? prepared.ciImage
-            ?? prepared.cgImage.map(CIImage.init(cgImage:))
-            ?? CIImage(image: prepared)
+            return CIImage(data: data, options: [.applyOrientationProperty: true])
+                ?? image.ciImage
+                ?? image.cgImage.map(CIImage.init(cgImage:))
+                ?? CIImage(image: image)
+        }
     }
 
     static func data(from image: UIImage) -> Data? {
-        let prepared = preparedImage(image, maxDimension: maxDimension)
-        return prepared.jpegData(compressionQuality: compressionQuality)
-            ?? prepared.pngData()
+        autoreleasepool {
+            if let cgImage = image.cgImage,
+               max(image.size.width, image.size.height) <= maxDimension {
+                return encodeJPEG(cgImage)
+            }
+
+            let prepared = preparedImage(image, maxDimension: maxDimension)
+            if let cgImage = prepared.cgImage,
+               let encoded = encodeJPEG(cgImage) {
+                return encoded
+            }
+            return prepared.jpegData(compressionQuality: compressionQuality) ?? prepared.pngData()
+        }
+    }
+
+    static func image(from data: Data) -> UIImage? {
+        autoreleasepool {
+            if let cgImage = downsampledCGImage(from: data, maxDimension: maxDimension) {
+                return UIImage(cgImage: cgImage, scale: 1, orientation: .up)
+            }
+            return UIImage(data: data)
+        }
+    }
+
+    static func data(fromRawImageData data: Data) -> Data? {
+        autoreleasepool {
+            if let cgImage = downsampledCGImage(from: data, maxDimension: maxDimension) {
+                return encodeJPEG(cgImage)
+            }
+            return UIImage(data: data).flatMap { Self.data(from: $0) }
+        }
+    }
+
+    static func preparedForModel(_ image: UIImage) -> UIImage {
+        autoreleasepool {
+            if max(image.size.width, image.size.height) <= maxDimension {
+                return image
+            }
+            return preparedImage(image, maxDimension: maxDimension)
+        }
     }
 
     private static func preparedImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
@@ -55,6 +93,43 @@ enum ImageInputPreparer {
         return renderer.image { _ in
             image.draw(in: CGRect(origin: .zero, size: targetSize))
         }
+    }
+
+    private static func downsampledCGImage(from data: Data, maxDimension: CGFloat) -> CGImage? {
+        let sourceOptions: [CFString: Any] = [
+            kCGImageSourceShouldCache: false
+        ]
+        guard let source = CGImageSourceCreateWithData(data as CFData, sourceOptions as CFDictionary) else {
+            return nil
+        }
+
+        let thumbnailOptions: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCache: false,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceThumbnailMaxPixelSize: Int(maxDimension)
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions as CFDictionary)
+    }
+
+    private static func encodeJPEG(_ cgImage: CGImage) -> Data? {
+        let data = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(
+            data,
+            "public.jpeg" as CFString,
+            1,
+            nil
+        ) else {
+            return nil
+        }
+
+        let options: [CFString: Any] = [
+            kCGImageDestinationLossyCompressionQuality: compressionQuality
+        ]
+        CGImageDestinationAddImage(destination, cgImage, options as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return data as Data
     }
     #elseif canImport(AppKit)
     static func ciImage(from image: NSImage) -> CIImage? {

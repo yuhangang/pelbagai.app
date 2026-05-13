@@ -9,6 +9,7 @@ class MainViewModel: ObservableObject {
     @Published var isChatsExpanded: Bool = true
     @Published var homePath: [NavigationItem] = []
     @Published var chatPath: [NavigationItem] = []
+    @Published var allDefinitions: [LocalToolDefinition] = []
     
     let environment: AppEnvironment
     private var cancellables = Set<AnyCancellable>()
@@ -16,6 +17,11 @@ class MainViewModel: ObservableObject {
     init(environment: AppEnvironment) {
         self.environment = environment
         
+        environment.registry.$allDefinitions
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.allDefinitions = $0 }
+            .store(in: &cancellables)
+
         // Listen for session updates
         NotificationCenter.default.publisher(for: .sessionUpdated)
             .receive(on: RunLoop.main)

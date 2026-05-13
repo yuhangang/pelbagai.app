@@ -81,6 +81,7 @@ struct ToolPageView: View {
     @ViewBuilder
     private func toolScrollContent() -> some View {
         VStack(spacing: 16) {
+            toolSwitcher
             toolHeader
             
             if viewModel.isLoadingModels {
@@ -254,12 +255,51 @@ struct ToolPageView: View {
     private func handleCapturedImage(_ newImage: UIImage?) {
         if let image = newImage {
             viewModel.capturedImage = nil
-            viewModel.pendingImage = image
+            viewModel.pendingImage = ImageInputPreparer.preparedForModel(image)
         }
     }
 
     @State private var animateGradient = false
     
+    private var toolSwitcher: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Switch Tool")
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 24)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(viewModel.allDefinitions) { definition in
+                        Button(action: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                viewModel.switchToTool(definition.toolID)
+                            }
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: definition.uiIcon)
+                                    .font(.system(size: 12))
+                                Text(definition.displayName)
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .foregroundColor(viewModel.toolID == definition.toolID ? .white : .primary)
+                            .background(
+                                Capsule()
+                                    .fill(viewModel.toolID == definition.toolID
+                                          ? AnyShapeStyle(definition.uiColor)
+                                          : AnyShapeStyle(Color.primary.opacity(0.06)))
+                            )
+                        }
+                    }
+                }
+                .padding(.horizontal, 24)
+            }
+        }
+        .padding(.top, 16)
+    }
+
     private var backgroundView: some View {
         ZStack {
 #if os(iOS)

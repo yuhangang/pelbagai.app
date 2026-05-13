@@ -322,7 +322,11 @@ class GemmaManager: ObservableObject {
     
     /// Releases the resident LLM weights.
     func unloadModel() async {
-        guard !isGenerating else { return }
+        guard !isGenerating else { 
+            print("🧠 [GemmaManager] Cannot unload while generating")
+            return 
+        }
+        print("🧠 [GemmaManager] Unloading resident model")
         await MLXModelManager.shared.unloadModel()
         response = ""
         status = ""
@@ -341,6 +345,9 @@ class GemmaManager: ObservableObject {
         lastErrorMessage = nil
         status = ""
         defer {
+            if image != nil {
+                Gemma4Processor.setRuntimeImageSoftTokenCap(32)
+            }
             status = ""
             isGenerating = false
             MLXModelManager.shared.clearCache()
@@ -366,7 +373,12 @@ class GemmaManager: ObservableObject {
             var messages = buildMessages(prompt: prompt, history: history)
             var executedToolCalls: Set<GemmaToolCall> = []
             var iterationCount = 0
+            var didRetryEmptyImageOutput = false
+            var imageSoftTokenRetryCap: Int?
             let maxTokens = maxGeneratedTokens
+            let isCPU = MLXModelManager.shared.preferredBackend == .cpu
+            let prefillStepSize = isCPU ? 32 : 128
+            let device: Device = isCPU ? .cpu : .gpu
             
             while executedToolCalls.count < maxToolIterations {
                 if Task.isCancelled { break }
@@ -375,16 +387,21 @@ class GemmaManager: ObservableObject {
                 
                 let currentMessages = messages
                 let currentIteration = iterationCount
+                let currentImageSoftTokenRetryCap = imageSoftTokenRetryCap
+                let shouldUseMultimodalInput = (audio != nil || image != nil)
+                    && (currentIteration == 1 || currentImageSoftTokenRetryCap != nil)
                 let rawOutput = try await container.perform { context in
                     let input: MLXLMCommon.LMInput
                     
                     // If we have audio or image and it's the first iteration, build a
                     // structured chat turn so MLXLMCommon collects media into
                     // `input.images` / `input.audio` for the model-specific processor.
-                    if (audio != nil || image != nil) && currentIteration == 1 {
+                    if shouldUseMultimodalInput {
                         var images: [UserInput.Image] = []
                         var audioInputs: [UserInput.Audio] = []
-                        var finalPrompt = prompt
+                        var finalPrompt = currentImageSoftTokenRetryCap == nil
+                            ? prompt
+                            : "Describe the visible content of this image in one concise paragraph. Do not answer with an empty response."
                         
                         if let img = image {
                             guard let ciImage = ImageInputPreparer.ciImage(from: img) else {
@@ -418,10 +435,10 @@ class GemmaManager: ObservableObject {
                         )
                     }
                     
-                    print("🧠 Starting MLXLMCommon.generate...")
+                    print("🧠 [GemmaManager] Starting MLXLMCommon.generate on \(device)...")
                     let result = try MLXLMCommon.generate(
                         input: input,
-                        parameters: GenerateParameters(temperature: 0.25, prefillStepSize: 128),
+                        parameters: GenerateParameters(temperature: 0.25, prefillStepSize: prefillStepSize),
                         context: context
                     ) { tokens in
                         if Task.isCancelled || !MLXModelManager.shared.isForegroundGPUAllowed() { return .stop }
@@ -457,11 +474,29 @@ class GemmaManager: ObservableObject {
                         }
                         return .more
                     }
+                    if result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        print(
+                            "🧠 [GemmaManager] Empty generation output. "
+                                + "generatedTokenCount=\(result.generationTokenCount), "
+                                + "promptTokenCount=\(result.promptTokenCount)"
+                        )
+                    }
                     return result.output
                 }
                 
                 let output = Self.cleanModelOutput(rawOutput)
                 print("🧠 Model output: \(output)")
+                if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                   image != nil,
+                   audio == nil,
+                   !didRetryEmptyImageOutput {
+                    didRetryEmptyImageOutput = true
+                    imageSoftTokenRetryCap = 64
+                    Gemma4Processor.setRuntimeImageSoftTokenCap(64)
+                    MLXModelManager.shared.clearCache()
+                    print("🧠 Empty image output; retrying once with image softTokens=64")
+                    continue
+                }
                 
                 if let toolCall = Self.parseToolCall(from: output),
                    !executedToolCalls.contains(toolCall) {
@@ -526,15 +561,20 @@ class GemmaManager: ObservableObject {
         }
 
         let maxTokens = maxGeneratedTokens
+        let isCPU = MLXModelManager.shared.preferredBackend == .cpu
+        let prefillStepSize = isCPU ? 32 : 128
+        let device: Device = isCPU ? .cpu : .gpu
 
         do {
             let rawOutput = try await container.perform { context in
+                print("🧠 [GemmaManager] Starting MLXLMCommon.generate (text-only) on \(device)...")
                 let input = try await context.processor.prepare(
                     input: .init(messages: messages)
                 )
+                
                 let result = try MLXLMCommon.generate(
                     input: input,
-                    parameters: GenerateParameters(temperature: 0.25, prefillStepSize: 128),
+                    parameters: GenerateParameters(temperature: 0.25, prefillStepSize: prefillStepSize),
                     context: context
                 ) { tokens in
                     if Task.isCancelled || !MLXModelManager.shared.isForegroundGPUAllowed() { return .stop }
@@ -758,7 +798,7 @@ class GemmaManager: ObservableObject {
             let examplesText = examples.enumerated().map { index, example in
                 let fields = example
                     .sorted { $0.key < $1.key }
-                    .map { "\($0.key): \($0.value)" }
+                    .map { "\($0.key): \($0.value.flatString)" }
                     .joined(separator: "\n")
                 return "Example \(index + 1):\n\(fields)"
             }.joined(separator: "\n\n")

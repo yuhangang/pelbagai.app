@@ -22,10 +22,36 @@ private struct Gemma4PreparedAudio {
     let tokenCount: Int
 }
 
+private struct Gemma4MessageGenerator: MessageGenerator {
+    func generate(message: Chat.Message) -> MLXLMCommon.Message {
+        guard message.role == .user, (!message.images.isEmpty || !message.audio.isEmpty) else {
+            var dict: [String: any Sendable] = [
+                "role": message.role.rawValue,
+                "content": message.content
+            ]
+            if let toolCalls = message.toolCalls { dict["tool_calls"] = toolCalls }
+            if let toolCallId = message.toolCallId { dict["tool_call_id"] = toolCallId }
+            return dict
+        }
+
+        var content: [[String: any Sendable]] = []
+        content += message.images.map { _ in ["type": "image"] as [String: any Sendable] }
+        if !message.content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            content.append(["type": "text", "text": message.content])
+        }
+        content += message.audio.map { _ in ["type": "audio"] as [String: any Sendable] }
+
+        return [
+            "role": message.role.rawValue,
+            "content": content
+        ]
+    }
+}
+
 public struct Gemma4Processor: UserInputProcessor {
     // E4B runs close to the jetsam limit on-device; keep the visual token
     // budget conservative so single-image turns stay stable.
-    private static let defaultMobileSoftTokenCap = 160
+    private static let defaultMobileSoftTokenCap = 32
     private static let runtimeBudgetLock = NSLock()
     private static var runtimeImageSoftTokenCapOverride: Int?
 
@@ -63,7 +89,7 @@ public struct Gemma4Processor: UserInputProcessor {
             defaultMobileSoftTokenCap
         )
         guard let override else { return configuredCap }
-        return max(32, min(configuredCap, override))
+        return max(16, min(configuredCap, override))
     }
 
     private func preprocessAudio(_ audio: UserInput.Audio) throws -> Gemma4PreparedAudio {
@@ -237,15 +263,23 @@ public struct Gemma4Processor: UserInputProcessor {
 
         var expanded: [Int] = []
         expanded.reserveCapacity(promptTokens.count + imageSoftTokenCount + 2)
+        var replacedExistingPlaceholder = false
 
         for token in promptTokens {
             if token == imageTokenId {
                 expanded.append(boiTokenId)
                 expanded.append(contentsOf: repeatElement(imageTokenId, count: imageSoftTokenCount))
                 expanded.append(eoiTokenId)
+                replacedExistingPlaceholder = true
             } else {
                 expanded.append(token)
             }
+        }
+        
+        if !replacedExistingPlaceholder {
+            expanded.append(boiTokenId)
+            expanded.append(contentsOf: repeatElement(imageTokenId, count: imageSoftTokenCount))
+            expanded.append(eoiTokenId)
         }
 
         return expanded
@@ -344,7 +378,7 @@ public struct Gemma4Processor: UserInputProcessor {
 
         let promptTokens: [Int]
         if case .chat(let chatMessages) = input.prompt {
-            let messages = DefaultMessageGenerator().generate(messages: chatMessages)
+            let messages = Gemma4MessageGenerator().generate(messages: chatMessages)
             let templatedTokens = try tokenizer.applyChatTemplate(
                 messages: messages,
                 tools: input.tools,

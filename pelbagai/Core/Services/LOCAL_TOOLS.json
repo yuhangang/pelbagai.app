@@ -242,5 +242,47 @@
     },
     "capabilities": ["scan_image", "export_csv", "persistent_state"],
     "examples": []
+  },
+  {
+    "schemaVersion": 1,
+    "toolID": "knowledge_base",
+    "displayName": "Knowledge Base",
+    "description": "Perform semantic search across vectorized local documents (e.g., .txt files).",
+    "briefing": "Use this tool to find reliable survival tips, technical guides, or historical facts from local indexed text documents. Supports diverse terrains (desert, arctic, jungle) and weather conditions.",
+    "index": ["search", "rag", "vector", "find", "document", "survival", "guide", "text", "desert", "arctic", "jungle", "alpine", "weather"],
+    "icon": "magnifyingglass.circle.fill",
+    "color": "indigo",
+    "rules": [
+      "Identify the user's core question.",
+      "Search the knowledge base for the most relevant sections.",
+      "Summarize the findings clearly, citing the source if available.",
+      "If the information is not in the knowledge base, state that clearly."
+    ],
+    "prompt": "You are a retrieval assistant. Search for the user's query in the local knowledge base and return the most relevant structured information. For survival queries, prioritize clear, actionable steps.",
+    "inputSchema": {
+      "query": "string"
+    },
+    "outputSchema": {
+      "Subject": "string",
+      "Results": "list of strings",
+      "Source": "string"
+    },
+    "stateSchema": {
+      "last_query": "string"
+    },
+    "capabilities": ["vector_search"],
+    "examples": [
+      {
+        "Subject": "Wilderness Survival: Essential Tips",
+        "Results": [
+          "S.T.O.P. Protocol: Sit down, Think, Observe, and Plan immediately upon realizing you are lost to prevent panic.",
+          "Shelter Selection: Avoid 'dead man's zones' like lone trees or dry ravines; prioritize insulation using 2-3 feet of debris.",
+          "Water Purification: Boiling is the gold standard; alternative methods include solar stills and transpiration bags from leafy branches.",
+          "Friction Fire: Master the Bow Drill method using a spindle, hearth board, and tinder bundle to create a sustainable ember.",
+          "Signaling: The 'Rule of Three' (3 fires, 3 whistles) is the universal distress signal visible to rescuers."
+        ],
+        "Source": "survival_tips_archive.txt"
+      }
+    ]
   }
 ]

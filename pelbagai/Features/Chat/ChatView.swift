@@ -77,7 +77,7 @@ struct ChatView: View {
         .onChange(of: viewModel.capturedImage) { _, newImage in
             if let image = newImage {
                 viewModel.capturedImage = nil
-                viewModel.pendingImage = image
+                viewModel.pendingImage = ImageInputPreparer.preparedForModel(image)
             }
         }
         .navigationTitle("Pelbagai")

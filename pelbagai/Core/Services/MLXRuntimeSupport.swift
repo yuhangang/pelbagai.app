@@ -98,7 +98,33 @@ func loadRemoteModelContainer(
     setenv("CI_DISABLE_NETWORK_MONITOR", "1", 1)
 
     if configuration.name.contains("gemma-4-") {
-        return try await VLMModelFactory.shared.loadContainer(
+        Gemma4Registration.setAudioCapabilityEnabled(false)
+        Gemma4Processor.setRuntimeImageSoftTokenCap(32)
+        await Gemma4Registration.register()
+
+        let modelRegistry = ModelTypeRegistry<LanguageModel>()
+        let processorRegistry = ProcessorTypeRegistry()
+        let makeModel: @Sendable (Data) throws -> Gemma4Model = { data in
+            try Gemma4Registration.makeModel(from: data)
+        }
+        await modelRegistry.registerModelType("gemma4", creator: makeModel)
+        await modelRegistry.registerModelType("gemma4_audio", creator: makeModel)
+        await processorRegistry.registerProcessorType("Gemma4Processor") { data, tokenizer in
+            let configuration = try JSONDecoder.json5().decode(
+                Gemma4ProcessorConfiguration.self,
+                from: data
+            )
+            return Gemma4Processor(configuration, tokenizer: tokenizer)
+        }
+
+        print("🧠 [MLXModelManager] Using app-owned Gemma 4 VLM runtime")
+        let gemma4Factory = VLMModelFactory(
+            typeRegistry: modelRegistry,
+            processorRegistry: processorRegistry,
+            modelRegistry: VLMRegistry.shared
+        )
+
+        return try await gemma4Factory.loadContainer(
             from: HubDownloaderBridge(hub: hub),
             using: TransformersTokenizerLoaderBridge(),
             configuration: configuration,
@@ -112,40 +138,4 @@ func loadRemoteModelContainer(
         configuration: configuration,
         progressHandler: progressHandler
     )
-}
-
-// MARK: - MemoryStats
-
-/// Utility to query the OS for current memory usage and Jetsam limits.
-enum MemoryStats {
-    /// Returns (footprintMB, jetsamLimitMB) using task_vm_info.
-    static func footprintMB() -> (Double, Double) {
-        var info = task_vm_info_data_t()
-        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
-        let kr = withUnsafeMutablePointer(to: &info) {
-            $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
-            }
-        }
-        guard kr == KERN_SUCCESS else { return (0, 0) }
-        let footprint = Double(info.phys_footprint) / 1_048_576
-        let limit = Double(info.limit_bytes_remaining) / 1_048_576 + footprint
-        return (footprint, limit)
-    }
-
-    /// Current available memory headroom (MB).
-    static var headroomMB: Int {
-        let (footprint, limit) = footprintMB()
-        #if os(macOS)
-        let simulatedJetsamMB = 6144
-        return max(0, simulatedJetsamMB - Int(footprint))
-        #else
-        return max(0, Int(limit - footprint))
-        #endif
-    }
-
-    /// Total physical memory in GB.
-    static var totalMemoryGB: Double {
-        Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824.0
-    }
 }

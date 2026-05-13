@@ -43,6 +43,7 @@ class VisionManager: ObservableObject {
     
     /// Releases the VLM model to free memory.
     func unloadModel() async {
+        print("📷 [VisionManager] Unloading resident model")
         await MLXModelManager.shared.unloadModel()
         status = ""
     }
@@ -59,20 +60,36 @@ class VisionManager: ObservableObject {
         }
         guard !isProcessing else { return nil }
         
+        // --- PhoneClaw Memory Management: Step 1 (Headroom Check) ---
+        let headroom = MemoryStats.headroomMB
+        if headroom < 320 {
+            print("📷 Scan aborted: Low memory headroom (\(headroom)MB)")
+            status = "Low memory — close other apps"
+            return nil
+        }
+        
+        // --- PhoneClaw Memory Management: Step 2 (Pre-inference Cache Clear) ---
+        // Frees Metal transient buffers from previous runs before allocating the new graph.
+        MLX.GPU.clearCache()
+        
         isProcessing = true
         status = "Analyzing image..."
         lastResult = nil
         
+        // --- PhoneClaw Memory Management: Step 3 (Image Normalization) ---
+        // Resize to 1024px to control the transient peak during prefill.
+        let resizedImage = self.resize(image: image, maxDimension: 1024) ?? image
+        
         let prompt = customPrompt ?? prompt(for: definition)
         
-        print("📷 Starting scan with tool: \(definition.toolID)")
+        print("📷 Starting scan (Headroom: \(headroom)MB, Image: \(Int(resizedImage.extent.width))x\(Int(resizedImage.extent.height)))")
         
         let maxTokens = maxGeneratedTokens
         
         do {
             let userInput = UserInput(
                 chat: [
-                    .user(prompt, images: [.ciImage(image)])
+                    .user(prompt, images: [.ciImage(resizedImage)])
                 ]
             )
             
@@ -85,6 +102,16 @@ class VisionManager: ObservableObject {
                     context: context
                 ) { tokens in
                     if tokens.count >= maxTokens { return .stop }
+                    
+                    // --- PhoneClaw Memory Management: Step 4 (Real-time Floor) ---
+                    // Every 32 tokens, check if headroom dropped below floor (200MB).
+                    if tokens.count % 32 == 0 {
+                        let currentHeadroom = MemoryStats.headroomMB
+                        if currentHeadroom < 200 {
+                            print("📷 Stopping: Headroom \(currentHeadroom)MB < 200MB floor")
+                            return .stop
+                        }
+                    }
                     
                     let text = context.tokenizer.decode(tokenIds: tokens)
                     if text.contains("</s>") || text.contains("<end_of_turn>") || text.contains("<eos>") {
@@ -288,7 +315,7 @@ class VisionManager: ObservableObject {
             let examplesText = examples.enumerated().map { index, example in
                 let fields = example
                     .sorted { $0.key < $1.key }
-                    .map { "\($0.key): \($0.value)" }
+                    .map { "\($0.key): \($0.value.flatString)" }
                     .joined(separator: "\n")
                 return "Example \(index + 1):\n\(fields)"
             }.joined(separator: "\n\n")
@@ -399,5 +426,23 @@ class VisionManager: ObservableObject {
             cleaned = cleaned.replacingOccurrences(of: seq, with: "")
         }
         return cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Resizes a CIImage to fit within the specified maximum dimension.
+    private func resize(image: CIImage, maxDimension: CGFloat) -> CIImage? {
+        let extent = image.extent
+        let width = extent.width
+        let height = extent.height
+        guard width > 0, height > 0 else { return nil }
+        
+        let scale: CGFloat
+        if width > height {
+            scale = width > maxDimension ? maxDimension / width : 1.0
+        } else {
+            scale = height > maxDimension ? maxDimension / height : 1.0
+        }
+        
+        if scale == 1.0 { return image }
+        return image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
     }
 }

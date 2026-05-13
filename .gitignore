@@ -96,8 +96,10 @@ build/
 DerivedData/
 .derivedData/
 .derived_data/
+.sandbox-home/
 *.moved-aside
 .swiftpm/
 .build/
 .env
 .vscode/
+packages/

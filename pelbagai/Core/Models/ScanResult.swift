@@ -127,7 +127,8 @@ final class ToolRegistry: ObservableObject {
     
     private func loadBundledDefinitions() {
         guard let url = Bundle.main.url(forResource: "LOCAL_TOOLS", withExtension: "json") else {
-            print("🛠 ToolRegistry: LOCAL_TOOLS.json not found in bundle")
+            print("🛠 ToolRegistry: LOCAL_TOOLS.json not found in bundle. Using emergency fallback.")
+            bundledDefinitions = emergencyFallbackDefinitions()
             return
         }
         
@@ -135,10 +136,25 @@ final class ToolRegistry: ObservableObject {
             let data = try Data(contentsOf: url)
             let defs = try decoder.decode([LocalToolDefinition].self, from: data)
             bundledDefinitions = Dictionary(uniqueKeysWithValues: defs.map { ($0.toolID, $0.normalized()) })
-            print("🛠 ToolRegistry: Loaded \(defs.count) tool definitions")
+            print("🛠 ToolRegistry: Loaded \(defs.count) tool definitions from bundle")
         } catch {
-            print("🛠 ToolRegistry: Failed to load definitions: \(error)")
+            print("🛠 ToolRegistry: Failed to load definitions: \(error). Using emergency fallback.")
+            bundledDefinitions = emergencyFallbackDefinitions()
         }
+    }
+    
+    private func emergencyFallbackDefinitions() -> [String: LocalToolDefinition] {
+        let fallback = LocalToolDefinition(
+            schemaVersion: 1,
+            toolID: "custom",
+            displayName: "General Scanner",
+            description: "A general purpose scanner that uses AI to understand any image.",
+            inputSchema: ["image": "The image to analyze"],
+            outputSchema: ["summary": "Brief summary of the image", "details": "Key details found"],
+            stateSchema: [:],
+            capabilities: [.scanImage, .exportCSV]
+        )
+        return [fallback.toolID: fallback]
     }
     
     private var userDefinitionsURL: URL {
@@ -212,6 +228,7 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         case openURL = "open_url"
         case persistentState = "persistent_state"
         case htmlView = "html_view"
+        case vectorSearch = "vector_search"
     }
     
     struct ActionDefinition: Codable, Equatable {
@@ -285,7 +302,7 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
     var capabilities: [Capability]
     var htmlTemplate: String?
     var actions: [String: ActionDefinition]?
-    var examples: [[String: String]]?
+    var examples: [[String: FieldValue]]?
     var chainTo: [String]?
     var stateBridges: [StateBridgeDefinition]?
     var runtimeActions: [String: RuntimeActionDefinition]?
@@ -337,7 +354,7 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         htmlTemplate = try container.decodeIfPresent(String.self, forKey: .htmlTemplate)
 
         actions = try container.decodeIfPresent([String: ActionDefinition].self, forKey: .actions)
-        examples = try container.decodeIfPresent([[String: String]].self, forKey: .examples)
+        examples = try container.decodeIfPresent([[String: FieldValue]].self, forKey: .examples)
         chainTo = try container.decodeIfPresent([String].self, forKey: .chainTo)
         stateBridges = try container.decodeIfPresent([StateBridgeDefinition].self, forKey: .stateBridges)
         runtimeActions = try container.decodeIfPresent([String: RuntimeActionDefinition].self, forKey: .runtimeActions)
@@ -360,7 +377,7 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         capabilities: [Capability] = [],
         htmlTemplate: String? = nil,
         actions: [String: ActionDefinition]? = nil,
-        examples: [[String: String]]? = nil,
+        examples: [[String: FieldValue]]? = nil,
         chainTo: [String]? = nil,
         stateBridges: [StateBridgeDefinition]? = nil,
         runtimeActions: [String: RuntimeActionDefinition]? = nil,
@@ -465,6 +482,7 @@ extension LocalToolDefinition.Capability {
         case .openURL:         return "Open URL"
         case .persistentState: return "Persistent State"
         case .htmlView:        return "Custom View"
+        case .vectorSearch:    return "Vector Search"
         }
     }
     
@@ -475,6 +493,7 @@ extension LocalToolDefinition.Capability {
         case .openURL:         return "safari"
         case .persistentState: return "memorychip"
         case .htmlView:        return "globe"
+        case .vectorSearch:    return "magnifyingglass.circle.fill"
         }
     }
     
@@ -485,6 +504,7 @@ extension LocalToolDefinition.Capability {
         case .openURL:         return .indigo
         case .persistentState: return .purple
         case .htmlView:        return .cyan
+        case .vectorSearch:    return .indigo
         }
     }
     
@@ -495,6 +515,7 @@ extension LocalToolDefinition.Capability {
         case .openURL:         return "Open validated web links"
         case .persistentState: return "Cross-scan memory and state variables"
         case .htmlView:        return "Interactive custom UI via embedded web view"
+        case .vectorSearch:    return "Semantic search through local vectorized knowledge base"
         }
     }
 }
@@ -686,7 +707,7 @@ struct ScanResult: Identifiable, Codable {
         values.append(escapeCSV(validationNotes))
         values.append(escapeCSV(scriptNotes ?? ""))
         values.append(escapeCSV(actions.map(\.summary).joined(separator: "; ")))
-        values.append(ISO8601DateFormatter().string(from: timestamp))
+        values.append(escapeCSV(timestamp.formattedTimestamp(precision: .minute)))
         return values.joined(separator: ",")
     }
     

@@ -163,6 +163,7 @@ Before handing off, confirm:
   boundary;
 - documentation was updated for user-visible or setup-affecting behavior;
 - relevant build/test/manual checks were run, or the blocker is stated plainly;
+- agent ran validation code on Xcode before wrapping out changes;
 - model prompts, local tools, storage schemas, and export formats remain backward
   compatible or include a migration path;
 - no unrelated user work was reverted.

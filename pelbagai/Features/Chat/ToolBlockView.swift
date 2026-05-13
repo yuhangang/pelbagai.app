@@ -78,6 +78,8 @@ struct CapabilityGridView: View {
             EmptyView()
         case .htmlView:
             EmptyView()
+        case .vectorSearch:
+            EmptyView()
         }
     }
 }

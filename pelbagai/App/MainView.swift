@@ -122,8 +122,10 @@ struct MainView: View {
                 }
                 
                 Section("Tools") {
-                    NavigationLink(value: NavigationItem.scanner("parcel_address")) {
-                        Label("Parcel Address", systemImage: "shippingbox.fill")
+                    ForEach(viewModel.allDefinitions) { tool in
+                        NavigationLink(value: NavigationItem.scanner(tool.toolID)) {
+                            Label(tool.displayName, systemImage: tool.uiIcon)
+                        }
                     }
                     NavigationLink(value: NavigationItem.storage) {
                         Label("Tool Storage", systemImage: "externaldrive.fill")

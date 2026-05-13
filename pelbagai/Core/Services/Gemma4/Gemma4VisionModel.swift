@@ -448,6 +448,13 @@ final nonisolated class Gemma4VisionPooler: Module {
         )
 
         let length = outputLength ?? defaultOutputLength
+        guard length > 0 else {
+            return (
+                MLXArray.zeros([hiddenStates.dim(0), 0, hiddenStates.dim(2)]).asType(hiddenStates.dtype),
+                MLXArray.zeros([hiddenStates.dim(0), 0], type: Bool.self)
+            )
+        }
+        
         var pooled = maskedHiddenStates
         var validMask = MLXArray.ones([hiddenStates.dim(0), length], type: Bool.self)
 

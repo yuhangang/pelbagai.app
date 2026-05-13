@@ -326,7 +326,7 @@ final class AgentOrchestrator: ObservableObject {
     private func currentTimeContext() -> String {
         let formatter = DateFormatter()
         formatter.dateStyle = .full
-        formatter.timeStyle = .medium
+        formatter.timeStyle = .short // Removes seconds
         formatter.timeZone = .current
         return "Current device time: \(formatter.string(from: Date()))"
     }

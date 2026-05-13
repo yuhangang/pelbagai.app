@@ -129,6 +129,7 @@ final class NativePluginRegistry: ObservableObject {
         register(ClipboardPlugin())
         register(MediaPlugin())
         register(StoragePlugin())
+        register(KnowledgeBasePlugin())
     }
 }
 
@@ -186,18 +187,16 @@ private struct SystemInfoPlugin: NativePlugin {
     }
 
     private func currentTime() -> NativePluginResult {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
-        formatter.timeZone = .current
-
-        let isoFormatter = ISO8601DateFormatter()
         let now = Date()
-        let localTime = formatter.string(from: now)
+        let localTime = now.formattedTimestamp(precision: .minute)
+        let hourOnly = now.formattedTimestamp(precision: .hour)
+        
+        let isoFormatter = ISO8601DateFormatter()
         return NativePluginResult(
             summary: localTime,
             data: [
                 "local_time": localTime,
+                "hour_only": hourOnly,
                 "iso8601": isoFormatter.string(from: now),
                 "timezone": TimeZone.current.identifier
             ]

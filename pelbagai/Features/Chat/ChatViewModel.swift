@@ -190,7 +190,8 @@ class ChatViewModel: ObservableObject {
     
     func sendImageMessage(_ image: UIImage, prompt: String? = nil) {
         let conversationContext = messages
-        let imageData = ImageInputPreparer.data(from: image)
+        let preparedImage = ImageInputPreparer.preparedForModel(image)
+        let imageData = ImageInputPreparer.data(from: preparedImage)
         
         let content = prompt?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? prompt! : "[Image Message]"
         
@@ -212,7 +213,7 @@ class ChatViewModel: ObservableObject {
             }
             
             let finalPrompt = content == "[Image Message]" ? "Please describe this image." : content
-            await environment.gemma.generate(prompt: finalPrompt, image: image, history: conversationContext)
+            await environment.gemma.generate(prompt: finalPrompt, image: preparedImage, history: conversationContext)
             
             completeGeneration()
         }

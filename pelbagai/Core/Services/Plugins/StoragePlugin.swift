@@ -30,6 +30,16 @@ struct StoragePlugin: NativePlugin {
                     "content": "Text content to save"
                 ],
                 requiresUserApproval: true
+            ),
+            NativePluginCapability(
+                id: "save_result",
+                displayName: "Save to Tool Table",
+                description: "Save structured data to a specific tool's storage table.",
+                argumentSchema: [
+                    "tool_id": "The ID of the target tool (e.g., 'receipt', 'business_card')",
+                    "data": "JSON string of fields to save"
+                ],
+                requiresUserApproval: true
             )
         ]
     }
@@ -53,7 +63,7 @@ struct StoragePlugin: NativePlugin {
             NativeChatTool(
                 name: "save_to_tool_table",
                 displayName: "Save to Table",
-                description: "Use to save structured information (like a receipt, contact, or note) into a specific tool's persistent table view. Ensure you use the correct tool_id.",
+                description: "Use to save structured information (like a receipt, contact, or note) into a specific tool's persistent table view. tool_id should be one of: 'receipt', 'business_card', 'parcel_address', 'document', 'custom'.",
                 pluginID: id,
                 capabilityID: "save_result"
             )

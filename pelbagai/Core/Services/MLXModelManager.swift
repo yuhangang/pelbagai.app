@@ -34,7 +34,8 @@ class MLXModelManager: ObservableObject {
     @Published var status: String = ""
     @Published var currentModelID: String?
     @Published var isForeground: Bool = true
-
+    @Published var preferredBackend: MLXBackend = .gpu
+    
     private var activeLoadTask: Task<ModelContainer, Error>?
     private var activeLoadModelID: String?
     private var activeLoadToken: UUID?
@@ -42,6 +43,21 @@ class MLXModelManager: ObservableObject {
     private init() {
         let cacheLimit = Self.recommendedCacheLimit(forPhysicalMemory: ProcessInfo.processInfo.physicalMemory)
         Memory.cacheLimit = Int(cacheLimit)
+        
+        // Use recommended cache limit. The 20MB limit was too restrictive for VLMs.
+        MLX.GPU.set(cacheLimit: Int(cacheLimit))
+        
+        // Load saved backend preference
+        if let saved = UserDefaults.standard.string(forKey: "mlxBackend"),
+           let backend = MLXBackend(rawValue: saved) {
+            self.preferredBackend = backend
+        }
+        
+        // Apply default device immediately
+        let device: Device = preferredBackend == .gpu ? .gpu : .cpu
+        Device.setDefault(device: device)
+        
+        print("🧠 [MLXModelManager] Initialized with backend: \(preferredBackend.displayName) (Device: \(device))")
         print("🧠 [MLXModelManager] Configured MLX cache limit: \(Self.formatBytes(cacheLimit))")
         setupLifecycleObservers()
     }
@@ -65,6 +81,14 @@ class MLXModelManager: ObservableObject {
     
     nonisolated func isForegroundGPUAllowed() -> Bool {
         GPUForegroundState.shared.isAllowed
+    }
+    
+    /// Updates the preferred backend and persists it.
+    func setPreferredBackend(_ backend: MLXBackend) {
+        guard preferredBackend != backend else { return }
+        preferredBackend = backend
+        UserDefaults.standard.set(backend.rawValue, forKey: "mlxBackend")
+        print("🧠 [MLXModelManager] Preferred backend set to: \(backend.displayName)")
     }
     
     /// Loads a model container if it's not already loaded or if the model ID has changed.
@@ -96,7 +120,11 @@ class MLXModelManager: ObservableObject {
         activeLoadToken = loadToken
         
         status = "Initializing..."
-        print("🧠 [MLXModelManager] Loading model: \(modelID)")
+        
+        // Set the MLX default device based on preference
+        let device: Device = preferredBackend == .gpu ? .gpu : .cpu
+        Device.setDefault(device: device)
+        print("🧠 [MLXModelManager] Loading model: \(modelID) on device: \(device)")
 
         let loadTask = Task<ModelContainer, Error> {
             let modelConfig: ModelConfiguration
@@ -170,15 +198,15 @@ class MLXModelManager: ObservableObject {
         switch physicalMemory {
         case ..<(8 * gibibyte):
             // Keep older/lower-memory devices on the most conservative tier.
-            return 512 * 1024 * 1024
+            return 256 * 1024 * 1024
         case ..<(12 * gibibyte):
             // Give 8 GB class devices a bit more cache without assuming lots of
             // free headroom after weights, app heap, media buffers, and OS use.
-            return 768 * 1024 * 1024
+            return 512 * 1024 * 1024
         default:
             // 12 GB class devices still should not hand MLX half the device RAM.
-            // Start at 1.5 GB and tune upward only from measured device runs.
-            return 1536 * 1024 * 1024
+            // Start at 1 GB and tune upward only from measured device runs.
+            return 1024 * 1024 * 1024
         }
     }
 

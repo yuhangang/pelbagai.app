@@ -38,7 +38,7 @@ class ExcelExporter: ObservableObject {
         
         // Write to documents directory
         let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd_HHmmss"
+        dateFormatter.dateFormat = "yyyy-MM-dd_HHmm"
         let filename = "Scan_\(dateFormatter.string(from: Date())).csv"
         
         do {

@@ -103,14 +103,15 @@ class ScannerViewModel: ObservableObject {
         guard let item else { return }
         if !environment.vision.isModelLoaded { await environment.vision.loadModel() }
         if let data = try? await item.loadTransferable(type: Data.self),
-           let uiImage = UIImage(data: data) {
+           let uiImage = ImageInputPreparer.image(from: data) {
             capturedImage = uiImage
             await processImage(uiImage)
         }
     }
     
     func processImage(_ image: UIImage) async {
-        guard let ciImage = ImageInputPreparer.ciImage(from: image) else {
+        let preparedImage = ImageInputPreparer.preparedForModel(image)
+        guard let ciImage = ImageInputPreparer.ciImage(from: preparedImage) else {
             environment.vision.status = "Failed to process image"
             return
         }

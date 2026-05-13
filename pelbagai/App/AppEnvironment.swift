@@ -42,4 +42,12 @@ class AppEnvironment: ObservableObject {
         self.vision = vision
         self.whisper = whisper
     }
+    
+    func unloadAllModels() async {
+        print("🧠 [AppEnvironment] Offloading all models before settings update")
+        await gemma.unloadModel()
+        await vision.unloadModel()
+        await whisper.unloadModel()
+        await mlx.unloadModel()
+    }
 }

@@ -16,20 +16,20 @@ public enum Gemma4Registration {
     private static let runtimeOptionsLock = NSLock()
     private static var audioCapabilityEnabled = false
 
-    public static func setAudioCapabilityEnabled(_ enabled: Bool) {
+    nonisolated public static func setAudioCapabilityEnabled(_ enabled: Bool) {
         runtimeOptionsLock.lock()
         audioCapabilityEnabled = enabled
         runtimeOptionsLock.unlock()
     }
 
-    private static func currentAudioCapabilityEnabled() -> Bool {
+    nonisolated public static func currentAudioCapabilityEnabled() -> Bool {
         runtimeOptionsLock.lock()
         let enabled = audioCapabilityEnabled
         runtimeOptionsLock.unlock()
         return enabled
     }
 
-    private static func makeRuntimeConfiguration(from data: Data) throws -> Gemma4ModelConfiguration {
+    nonisolated private static func makeRuntimeConfiguration(from data: Data) throws -> Gemma4ModelConfiguration {
         let configuration = try JSONDecoder.json5().decode(
             Gemma4ModelConfiguration.self,
             from: data
@@ -37,16 +37,21 @@ public enum Gemma4Registration {
         return configuration.withAudioCapability(enabled: currentAudioCapabilityEnabled())
     }
 
+    nonisolated public static func makeModel(from data: Data) throws -> Gemma4Model {
+        let configuration = try makeRuntimeConfiguration(from: data)
+        return Gemma4Model(configuration)
+    }
+
     public static func register() async {
-        await LLMTypeRegistry.shared.registerModelType("gemma4") { data in
-            let configuration = try makeRuntimeConfiguration(from: data)
-            return Gemma4Model(configuration)
+        let makeModel: @Sendable (Data) throws -> Gemma4Model = { data in
+            try Self.makeModel(from: data)
         }
 
-        await VLMTypeRegistry.shared.registerModelType("gemma4") { data in
-            let configuration = try makeRuntimeConfiguration(from: data)
-            return Gemma4Model(configuration)
-        }
+        await LLMTypeRegistry.shared.registerModelType("gemma4", creator: makeModel)
+        await LLMTypeRegistry.shared.registerModelType("gemma4_audio", creator: makeModel)
+
+        await VLMTypeRegistry.shared.registerModelType("gemma4", creator: makeModel)
+        await VLMTypeRegistry.shared.registerModelType("gemma4_audio", creator: makeModel)
 
         await VLMProcessorTypeRegistry.shared.registerProcessorType("Gemma4Processor") { data, tokenizer in
             let configuration = try JSONDecoder.json5().decode(
