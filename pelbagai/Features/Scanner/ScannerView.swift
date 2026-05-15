@@ -36,6 +36,16 @@ struct ScannerView: View {
             }
         }
         .navigationTitle("Vision Scanner")
+        .alert("Large Download", isPresented: $viewModel.showDownloadWarning) {
+            Button("Download Anyway") {
+                viewModel.confirmDownload()
+            }
+            Button("Cancel", role: .cancel) {
+                viewModel.discardResult()
+            }
+        } message: {
+            Text("You are currently on a cellular connection or hotspot. Downloading the AI model requires several gigabytes of data. Do you want to proceed?")
+        }
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif
@@ -122,8 +132,14 @@ struct ScannerView: View {
             
             if !viewModel.isLoadingModel {
                 templateSelector
-                scanInputArea
-                    .padding(.horizontal)
+                
+                if viewModel.isModelLoaded || env.gemma.selectedModel.isDownloaded {
+                    scanInputArea
+                        .padding(.horizontal)
+                } else {
+                    downloadPromptView
+                        .padding(.horizontal)
+                }
             }
             
             if let image = viewModel.capturedImage {
@@ -209,6 +225,38 @@ struct ScannerView: View {
             }
         }
         .padding(.top, 16)
+    }
+    
+    private var downloadPromptView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 48))
+                .foregroundStyle(viewModel.selectedToolColor.gradient)
+            
+            VStack(spacing: 6) {
+                Text("Model Download Required")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                Text("Vision features require the local AI model.")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+            }
+            
+            Button {
+                viewModel.confirmDownload()
+            } label: {
+                Text("Download Model")
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(viewModel.selectedToolColor)
+                    .cornerRadius(12)
+            }
+        }
+        .padding(24)
+        .background(.ultraThinMaterial)
+        .cornerRadius(24)
+        .overlay(RoundedRectangle(cornerRadius: 24).stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
     }
     
     private var loadingModelView: some View {

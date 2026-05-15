@@ -428,26 +428,23 @@ struct ResultsBlock: View {
                                                     .frame(width: 5, height: 5)
                                                     .offset(y: 7)
                                                 Text(item)
-                                                    .font(.system(size: 16, design: .rounded))
+                                                    .font(.system(size: 14, design: .rounded))
                                                     .foregroundColor(.primary)
                                             }
                                         }
                                     }
                                     .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 8)
                                 } else {
                                     Text(fv.flatString.isEmpty ? "—" : fv.flatString)
-                                        .font(.system(size: 16, weight: .medium, design: .rounded))
+                                        .font(.system(size: 14, weight: .medium, design: .rounded))
                                         .foregroundColor(fv.flatString.isEmpty ? .secondary : .primary)
                                         .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.vertical, 8)
                                 }
                             }
-                            .padding(.vertical, 14)
                             .padding(.horizontal, 16)
-                            .background(index % 2 == 0 ? Color.primary.opacity(0.04) : Color.clear)
-                            
-                            if index < result.sortedKeys.count - 1 {
-                                Divider()
-                            }
+                            .background(index % 2 == 0 ? Color.primary.opacity(0.02) : Color.clear)
                         }
                     }
                 }
@@ -490,14 +487,17 @@ struct ResultsBlock: View {
             
             // Action buttons
             HStack(spacing: 12) {
+                let isAlreadySaved = savedResults.contains(where: { $0.id == result.id })
                 Button {
-                    env.storage.save(result, to: tool.toolID)
-                    savedResults.insert(result, at: 0)
+                    if !isAlreadySaved {
+                        env.storage.save(result, to: tool.toolID)
+                        savedResults.insert(result, at: 0)
+                    }
                     env.vision.lastResult = nil
                 } label: {
                     HStack {
-                        Image(systemName: "checkmark.circle.fill")
-                        Text("Save")
+                        Image(systemName: isAlreadySaved ? "checkmark.circle" : "checkmark.circle.fill")
+                        Text(isAlreadySaved ? "Done" : "Save")
                     }
                     .font(.system(size: 14, weight: .semibold))
                     .frame(maxWidth: .infinity)
@@ -505,7 +505,7 @@ struct ResultsBlock: View {
                     .foregroundColor(.white)
                     .background(
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(LinearGradient(colors: [toolColor, toolColor.opacity(0.7)], startPoint: .leading, endPoint: .trailing))
+                            .fill(LinearGradient(colors: [isAlreadySaved ? .gray : toolColor, isAlreadySaved ? .gray.opacity(0.7) : toolColor.opacity(0.7)], startPoint: .leading, endPoint: .trailing))
                     )
                 }
                 
@@ -623,7 +623,7 @@ struct ResultsBlock: View {
                             savedResults.removeAll { $0.id == result.id }
                         } label: {
                             Image(systemName: "trash")
-                                .font(.system(size: 14))
+                                .font(.system(size: 14) )
                                 .foregroundColor(.red.opacity(0.6))
                         }
                     }
@@ -712,12 +712,12 @@ struct ResponseBlock: View {
                         )
                         .contextMenu {
                             Button {
-                                #if os(iOS)
+#if os(iOS)
                                 UIPasteboard.general.string = text
-                                #elseif os(macOS)
+#elseif os(macOS)
                                 NSPasteboard.general.clearContents()
                                 NSPasteboard.general.setString(text, forType: .string)
-                                #endif
+#endif
                             } label: {
                                 Label("Copy", systemImage: "doc.on.doc")
                             }

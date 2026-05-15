@@ -39,8 +39,10 @@ being passed to Gemma or persisted as chat image data. This keeps the heavy
 vision-preprocessing window from retaining full-resolution camera bitmaps.
 Gemma 4 image turns use a conservative default visual soft-token budget, and
 both `gemma4` and `gemma4_audio` model config aliases are registered through the
-app runtime wrapper so image-only turns do not load the audio tower unless audio
-capability has been explicitly enabled.
+app runtime wrapper. Audio tower loading is decided by `VoiceRuntimePolicy`
+instead of a raw settings flag: E4B native audio is allowed only on 12 GB-class
+devices, E2B native audio is allowed on constrained devices, and Whisper fallback
+unloads Gemma only below the high-memory tier.
 
 `GemmaManager.switchModel(to:)` is a transactional app-level selection change:
 the replacement model must load successfully before the selection is persisted.

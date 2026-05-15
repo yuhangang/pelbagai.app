@@ -35,12 +35,14 @@ class ChatViewModel: ObservableObject {
     @Published var clarificationRequest: ClarificationRequest?
     @Published var pendingToolCall: PendingToolCall?
     
+    @Published var showDownloadWarning = false
+    
     private let audioService = AudioService()
+    private let attachmentService = AttachmentService()
     private var cancellables = Set<AnyCancellable>()
-    private var activeTask: Task<Void, Never>?
     
     deinit {
-        activeTask?.cancel()
+        Task { await LLMRequestQueue.shared.clear() }
     }
     
     init(sessionId: UUID, environment: AppEnvironment, initialPrompt: String? = nil) {
@@ -110,6 +112,23 @@ class ChatViewModel: ObservableObject {
     }
     
     func loadAllModels() async {
+        // Only load if already downloaded
+        guard environment.gemma.selectedModel.isDownloaded else {
+            print("🧠 Chat: Model not downloaded, skipping auto-load")
+            return
+        }
+        
+        await performLoadAllModels()
+    }
+    
+    func confirmDownload() {
+        showDownloadWarning = false
+        Task {
+            await performLoadAllModels()
+        }
+    }
+    
+    private func performLoadAllModels() async {
         await environment.gemma.loadModel()
         
         // Auto-send initial prompt if provided and no messages exist yet
@@ -169,23 +188,121 @@ class ChatViewModel: ObservableObject {
     
     func sendAudioMessage(_ audio: [Float]) {
         let conversationContext = messages
-        let userMessage = ChatMessage(id: UUID(), sessionId: sessionId, role: .user, content: "[Audio Message]", imageData: nil, timestamp: Date())
+        let userMessage = ChatMessage(
+            id: UUID(),
+            sessionId: sessionId,
+            role: .user,
+            content: "[Audio Message]",
+            imageData: nil,
+            attachmentsData: nil,
+            timestamp: Date()
+        )
         messages.append(userMessage)
         environment.database.addMessage(userMessage)
         
-        activeTask?.cancel()
-        activeTask = Task {
-            if !environment.gemma.isModelLoaded {
-                await environment.gemma.loadModel()
+        Task {
+            await LLMRequestQueue.shared.enqueue { [weak self] in
+                guard let self = self else { return }
+                
+                await MainActor.run {
+                    self.isGenerating = true
+                }
+
+                do {
+                    let selectedModel = await MainActor.run { self.environment.gemma.selectedModel }
+                    let voicePolicy = VoiceRuntimePolicy(selectedModel: selectedModel)
+                    if voicePolicy.shouldLoadGemmaAudioTower {
+                        do {
+                            let generatedText = try await self.generateDirectAudioResponse(
+                                audio,
+                                history: conversationContext
+                            )
+
+                            await MainActor.run {
+                                self.isGenerating = false
+                                self.completeGeneration(generatedText)
+
+                                if self.messages.count <= 2 {
+                                    Task {
+                                        await self.performTitleUpdate(for: "Voice message")
+                                    }
+                                }
+                            }
+                            return
+                        } catch {
+                            print("🎤 [ChatVM] Gemma direct audio failed, falling back to Whisper: \(error)")
+                            if voicePolicy.shouldUnloadGemmaBeforeWhisper {
+                                await self.environment.gemma.unloadModel()
+                            }
+                        }
+                    }
+
+                    let transcript = try await self.transcribeWithWhisper(audio, policy: voicePolicy)
+                    print("🎤 [ChatVM] Voice transcript: \"\(transcript.prefix(80))\"")
+
+                    let result = await self.environment.agent.processText(
+                        transcript,
+                        sessionId: self.sessionId,
+                        history: conversationContext
+                    )
+
+                    await MainActor.run {
+                        self.isGenerating = false
+                        self.completeAgentTurn(result)
+
+                        if self.messages.count <= 2 {
+                            Task {
+                                await self.performTitleUpdate(for: transcript)
+                            }
+                        }
+                    }
+                } catch {
+                    await self.environment.whisper.unloadModel()
+                    await MainActor.run {
+                        self.isGenerating = false
+                        self.addAssistantMessage("I could not transcribe the voice message clearly. \(error.localizedDescription)")
+                    }
+                }
             }
-            
-            let prompt = "Listen to this audio and respond naturally."
-            messages.append(ChatMessage(id: UUID(), sessionId: sessionId, role: .user, content: "[Audio Input]", imageData: nil, timestamp: Date()))
-            
-            await environment.gemma.generate(prompt: prompt, audio: audio, history: conversationContext)
-            
-            completeGeneration()
         }
+    }
+
+    private func generateDirectAudioResponse(_ audio: [Float], history: [ChatMessage]) async throws -> String {
+        let isLoaded = await MainActor.run { environment.gemma.isModelLoaded }
+        if !isLoaded {
+            _ = await environment.gemma.loadModel()
+        }
+
+        let prompt = """
+        Listen to the voice message and answer the user's spoken request directly.
+        If the speech is unclear, say you could not hear it clearly.
+        """
+        let response = await environment.gemma.generate(
+            prompt: prompt,
+            audio: audio,
+            history: history
+        )
+        let trimmed = response.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if trimmed.isEmpty
+            || trimmed.localizedCaseInsensitiveContains("local model error")
+            || trimmed.localizedCaseInsensitiveContains("model is not loaded")
+        {
+            throw WhisperManager.WhisperManagerError.emptyTranscript
+        }
+
+        return trimmed
+    }
+
+    private func transcribeWithWhisper(_ audio: [Float], policy: VoiceRuntimePolicy) async throws -> String {
+        if policy.shouldUnloadGemmaBeforeWhisper {
+            await environment.gemma.unloadModel()
+        } else {
+            environment.mlx.clearCache()
+        }
+        let transcript = try await environment.whisper.transcribe(samples: audio)
+        await environment.whisper.unloadModel()
+        return transcript
     }
     
     func sendImageMessage(_ image: UIImage, prompt: String? = nil) {
@@ -201,21 +318,28 @@ class ChatViewModel: ObservableObject {
             role: .user,
             content: content,
             imageData: imageData,
+            attachmentsData: nil,
             timestamp: Date()
         )
         messages.append(userMessage)
         environment.database.addMessage(userMessage)
         
-        activeTask?.cancel()
-        activeTask = Task {
-            if !environment.gemma.isModelLoaded {
-                await environment.gemma.loadModel()
+        Task {
+            await LLMRequestQueue.shared.enqueue { [weak self] in
+                guard let self = self else { return }
+                
+                let isLoaded = await MainActor.run { self.environment.gemma.isModelLoaded }
+                if !isLoaded {
+                    await self.environment.gemma.loadModel()
+                }
+                
+                let finalPrompt = content == "[Image Message]" ? "Please describe this image." : content
+                let generatedText = await self.environment.gemma.generate(prompt: finalPrompt, image: preparedImage, history: conversationContext)
+                
+                await MainActor.run {
+                    self.completeGeneration(generatedText)
+                }
             }
-            
-            let finalPrompt = content == "[Image Message]" ? "Please describe this image." : content
-            await environment.gemma.generate(prompt: finalPrompt, image: preparedImage, history: conversationContext)
-            
-            completeGeneration()
         }
     }
     
@@ -242,48 +366,99 @@ class ChatViewModel: ObservableObject {
     
     func sendMessage(_ text: String) {
         let conversationContext = messages
-        let userMessage = ChatMessage(id: UUID(), sessionId: sessionId, role: .user, content: text, imageData: nil, timestamp: Date())
+        let userMessage = ChatMessage(
+            id: UUID(),
+            sessionId: sessionId,
+            role: .user,
+            content: text,
+            imageData: nil,
+            attachmentsData: nil,
+            timestamp: Date()
+        )
         messages.append(userMessage)
         environment.database.addMessage(userMessage)
         
-        updateSessionTitleIfNeeded(with: text)
         
-        activeTask?.cancel()
-        activeTask = Task { [weak self] in
-            guard let self = self else { return }
-            if !self.environment.gemma.isModelLoaded {
-                let loaded = await self.environment.gemma.loadModel()
-                guard loaded else {
-                    self.addAssistantMessage("The local model could not be loaded. \(self.environment.gemma.lastErrorMessage ?? "Please free memory and try again.")")
-                    return
+        Task {
+            await LLMRequestQueue.shared.enqueue { [weak self] in
+                guard let self = self else { return }
+                
+                print("📝 [ChatVM] Processing text message: \"\(text.prefix(20))...\"")
+                
+                let isLoaded = await MainActor.run { self.environment.gemma.isModelLoaded }
+                if !isLoaded {
+                    print("📝 [ChatVM] Model not loaded, initializing...")
+                    _ = await self.environment.gemma.loadModel()
+                }
+                
+                await MainActor.run {
+                    self.isGenerating = true
+                }
+                
+                let result = await self.environment.agent.processText(
+                    text,
+                    sessionId: self.sessionId,
+                    history: conversationContext
+                )
+                
+                await MainActor.run {
+                    self.isGenerating = false
+                    self.completeAgentTurn(result)
+                    
+                    // If this is the first message, generate a title
+                    if self.messages.count <= 2 {
+                        Task {
+                            await self.performTitleUpdate(for: text)
+                        }
+                    }
                 }
             }
+        }
+    }
+    
+    /// Summarizes the first message into a session title.
+    /// Enqueues title generation as a background task after the main response.
+    private func performTitleUpdate(for prompt: String) async {
+        guard messages.count <= 2 else { return }
+        
+        await LLMRequestQueue.shared.enqueue { [weak self] in
+            guard let self = self else { return }
             
-            let result = await self.environment.agent.processText(
-                text,
-                sessionId: self.sessionId,
-                history: conversationContext
-            )
-            self.completeAgentTurn(result)
+            print("📝 [ChatVM] Generating session title for: \"\(prompt.prefix(20))...\"")
+            
+            let isLoaded = await MainActor.run { self.environment.gemma.isModelLoaded }
+            if !isLoaded {
+                await self.environment.gemma.loadModel()
+            }
+            
+            let messages = [
+                ["role": "system", "content": "You are a helpful assistant. Reply with only the summarized title, no other text or quotes."],
+                ["role": "user", "content": "Summarize this user request into a concise 3-4 word title: \"\(prompt)\""]
+            ]
+            
+            let generatedTitle = await self.environment.gemma.generateText(messages: messages, silent: true)
+            let cleanedTitle = generatedTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: "\"", with: "")
+            
+            print("📝 [ChatVM] Generated title: \"\(cleanedTitle)\"")
+            
+            if !cleanedTitle.isEmpty && cleanedTitle.count < 60 {
+                await MainActor.run {
+                    self.environment.database.updateSessionTitle(id: self.sessionId, newTitle: cleanedTitle)
+                    NotificationCenter.default.post(name: .sessionUpdated, object: nil)
+                }
+            }
         }
     }
     
-    private func updateSessionTitleIfNeeded(with text: String) {
-        if messages.count == 1 {
-            let title = String(text.prefix(30)) + (text.count > 30 ? "..." : "")
-            environment.database.updateSessionTitle(id: sessionId, newTitle: title)
-            NotificationCenter.default.post(name: .sessionUpdated, object: nil)
-        }
-    }
-    
-    private func completeGeneration() {
-        let responseText = environment.gemma.response
+    private func completeGeneration(_ responseText: String) {
         let aiMessage = ChatMessage(
             id: UUID(),
             sessionId: sessionId,
             role: .assistant,
             content: responseText,
             imageData: nil,
+            attachmentsData: nil,
             timestamp: Date()
         )
         messages.append(aiMessage)
@@ -301,14 +476,19 @@ class ChatViewModel: ObservableObject {
     }
 
     func confirmPendingToolCall(arguments: [String: String]) {
-        activeTask?.cancel()
-        activeTask = Task { [weak self] in
-            guard let self else { return }
-            let result = await self.environment.agent.confirmPendingToolCall(
-                arguments: arguments,
-                sessionId: self.sessionId
-            )
-            self.completeAgentTurn(result)
+        Task {
+            await LLMRequestQueue.shared.enqueue { [weak self] in
+                guard let self = self else { return }
+                
+                let result = await self.environment.agent.confirmPendingToolCall(
+                    arguments: arguments,
+                    sessionId: self.sessionId
+                )
+                
+                await MainActor.run {
+                    self.completeAgentTurn(result)
+                }
+            }
         }
     }
 
@@ -350,40 +530,151 @@ class ChatViewModel: ObservableObject {
             role: .user,
             content: "Create local tool: \(request)",
             imageData: nil,
+            attachmentsData: nil,
             timestamp: Date()
         )
         messages.append(userMessage)
         environment.database.addMessage(userMessage)
         
-        updateSessionTitleIfNeeded(with: request)
-        
-        activeTask?.cancel()
-        activeTask = Task { [weak self] in
-            guard let self = self else { return }
-            if !self.environment.gemma.isModelLoaded {
-                await self.environment.gemma.loadModel()
-            }
-            
-            await self.environment.gemma.generate(prompt: self.toolDefinitionPrompt(for: request), history: [])
-            let rawResponse = self.environment.gemma.response
-            
-            do {
-                let definition = try self.parseToolDefinition(from: rawResponse, request: request)
-                self.environment.registry.upsert(definition)
+        Task {
+            await LLMRequestQueue.shared.enqueue { [weak self] in
+                guard let self = self else { return }
                 
-                let assistantText = """
-                Created local tool "\(definition.displayName)".
+                let isLoaded = await MainActor.run { self.environment.gemma.isModelLoaded }
+                if !isLoaded {
+                    await self.environment.gemma.loadModel()
+                }
                 
-                Tool ID: \(definition.toolID)
-                Capabilities: \(definition.capabilities.map(\.rawValue).joined(separator: ", "))
-                """
-                self.addAssistantMessage(assistantText)
-            } catch {
-                self.addAssistantMessage("I could not create that tool definition. \(error.localizedDescription)")
+                let prompt = await MainActor.run { self.toolDefinitionPrompt(for: request) }
+                let toolResponse = await self.environment.gemma.generate(prompt: prompt, history: [])
+                
+                await MainActor.run {
+                    do {
+                        let definition = try self.parseToolDefinition(from: toolResponse, request: request)
+                        self.environment.registry.upsert(definition)
+                        
+                        // If this is the first message, generate a title
+                        if self.messages.count <= 2 {
+                            Task {
+                                await self.performTitleUpdate(for: request)
+                            }
+                        }
+                        
+                        let assistantText = """
+                        Created local tool "\(definition.displayName)".
+                        
+                        Tool ID: \(definition.toolID)
+                        Capabilities: \(definition.capabilities.map(\.rawValue).joined(separator: ", "))
+                        """
+                        self.addAssistantMessage(assistantText)
+                    } catch {
+                        self.addAssistantMessage("I could not create that tool definition. \(error.localizedDescription)")
+                    }
+                }
             }
         }
     }
     
+    func renameSession(to newTitle: String) {
+        let trimmed = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        environment.database.updateSessionTitle(id: sessionId, newTitle: trimmed)
+        NotificationCenter.default.post(name: .sessionUpdated, object: nil)
+    }
+
+    func handleImportedFile(result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            
+            guard url.startAccessingSecurityScopedResource() else {
+                print("🧠 ChatVM: Cannot access security scoped resource")
+                return
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+            
+            do {
+                let extractedText = try attachmentService.extractText(from: url)
+                let filename = url.lastPathComponent
+                
+                // Clone file to local storage (generic Attachments folder)
+                let localName = try saveAttachmentToStorage(from: url)
+                
+                let attachment = ChatAttachment(
+                    id: UUID(),
+                    filename: filename,
+                    fileType: url.pathExtension.isEmpty ? "file" : url.pathExtension,
+                    localPath: localName,
+                    extractedText: extractedText
+                )
+                
+                let attachmentsData = try JSONEncoder().encode([attachment])
+                
+                let userMessage = ChatMessage(
+                    id: UUID(),
+                    sessionId: sessionId,
+                    role: .user,
+                    content: extractedText,
+                    imageData: nil,
+                    attachmentsData: attachmentsData,
+                    timestamp: Date()
+                )
+                
+                messages.append(userMessage)
+                environment.database.addMessage(userMessage)
+                
+                // Process with Agent
+                Task {
+                    await LLMRequestQueue.shared.enqueue { [weak self] in
+                        guard let self = self else { return }
+                        let isLoaded = await MainActor.run { self.environment.gemma.isModelLoaded }
+                        if !isLoaded { await self.environment.gemma.loadModel() }
+                        
+                        await MainActor.run { self.isGenerating = true }
+                        
+                        // Pass the extracted text to the agent
+                        let prompt = "I've attached a file named \(filename). Content:\n\(extractedText)"
+                        let result = await self.environment.agent.processText(
+                            prompt,
+                            sessionId: self.sessionId,
+                            history: self.messages.dropLast()
+                        )
+                        
+                        await MainActor.run {
+                            self.isGenerating = false
+                            self.completeAgentTurn(result)
+                        }
+                    }
+                }
+                
+                print("🧠 ChatVM: Successfully processed attachment \(filename)")
+            } catch {
+                print("🧠 ChatVM: Failed to process attachment: \(error)")
+                addAssistantMessage("Failed to process attachment: \(error.localizedDescription)")
+            }
+            
+        case .failure(let error):
+            print("🧠 ChatVM: File import failed: \(error)")
+        }
+    }
+    
+    private func saveAttachmentToStorage(from url: URL) throws -> String {
+        let fileManager = FileManager.default
+        let documentsURL = try fileManager.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let attachmentsDirectory = documentsURL.appendingPathComponent("Attachments", isDirectory: true)
+        
+        if !fileManager.fileExists(atPath: attachmentsDirectory.path) {
+            try fileManager.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
+        }
+        
+        let fileExtension = url.pathExtension
+        let uniqueName = "\(UUID().uuidString).\(fileExtension)"
+        let destinationURL = attachmentsDirectory.appendingPathComponent(uniqueName)
+        
+        try fileManager.copyItem(at: url, to: destinationURL)
+        return uniqueName
+    }
+
     private func addAssistantMessage(_ text: String) {
         let aiMessage = ChatMessage(
             id: UUID(),
@@ -391,6 +682,7 @@ class ChatViewModel: ObservableObject {
             role: .assistant,
             content: text,
             imageData: nil,
+            attachmentsData: nil,
             timestamp: Date()
         )
         messages.append(aiMessage)
@@ -400,7 +692,6 @@ class ChatViewModel: ObservableObject {
     private func completeAgentTurn(_ result: AgentTurnResult) {
         clarificationRequest = result.clarification
         pendingToolCall = result.pendingToolCall
-        environment.gemma.response = result.response
         addAssistantMessage(result.response)
 
         let ttsEnabled = UserDefaults.standard.bool(forKey: "ttsEnabled")

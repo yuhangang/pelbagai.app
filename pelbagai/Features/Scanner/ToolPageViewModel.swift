@@ -138,24 +138,32 @@ class ToolPageViewModel: ObservableObject {
     }
     
     func processTextInput(_ text: String) async {
-        if !environment.vision.isModelLoaded {
-            await environment.vision.loadModel()
-        }
-        
-        isProcessingText = true
-        defer { isProcessingText = false }
-        
-        let history = Array(toolInteractionHistory().suffix(2))
-        await environment.gemma.generateToolOutput(
-            text: text,
-            definition: tool,
-            history: history,
-            stateOverride: toolStateOverride()
-        )
-        
-        let output = environment.gemma.response
-        if !output.isEmpty {
-            handleModelTextOutput(output)
+        await LLMRequestQueue.shared.enqueue { [weak self] in
+            guard let self = self else { return }
+            
+            let isLoaded = await MainActor.run { self.environment.vision.isModelLoaded }
+            if !isLoaded {
+                await self.environment.vision.loadModel()
+            }
+            
+            await MainActor.run { self.isProcessingText = true }
+            defer { Task { @MainActor [weak self] in self?.isProcessingText = false } }
+            
+            let history = await MainActor.run { Array(self.toolInteractionHistory().suffix(2)) }
+            let override = await MainActor.run { self.toolStateOverride() }
+            let definition = await MainActor.run { self.tool }
+            
+            await self.environment.gemma.generateToolOutput(
+                text: text,
+                definition: definition,
+                history: history,
+                stateOverride: override
+            )
+            
+            let output = await MainActor.run { self.environment.gemma.response }
+            if !output.isEmpty {
+                await MainActor.run { self.handleModelTextOutput(output) }
+            }
         }
     }
     
@@ -166,7 +174,15 @@ class ToolPageViewModel: ObservableObject {
             if response.isHiddenContext, let data = response.contextData {
                 content = "TOOL KNOWLEDGE ADDED:\n" + data.map { "\($0): \($1)" }.joined(separator: "\n")
             }
-            return ChatMessage(id: response.id, sessionId: UUID(), role: role, content: content, imageData: nil, timestamp: response.timestamp)
+            return ChatMessage(
+                id: response.id,
+                sessionId: UUID(),
+                role: role,
+                content: content,
+                imageData: nil,
+                attachmentsData: nil,
+                timestamp: response.timestamp
+            )
         }
     }
     
@@ -242,51 +258,60 @@ class ToolPageViewModel: ObservableObject {
     }
     
     func processImage(_ image: UIImage, customPrompt: String? = nil) async {
-
-        let preparedImage = ImageInputPreparer.preparedForModel(image)
-        guard let ciImage = ImageInputPreparer.ciImage(from: preparedImage) else {
-            promptResponses.append(ToolPromptResponse(text: "Failed to process image", isUser: false))
-            return
-        }
-        if !environment.vision.isModelLoaded {
-            await environment.vision.loadModel()
-        }
-        
-        let result: ScanResult?
-        if let prompt = customPrompt {
-            // Use VisionManager to scan the image with the custom prompt, rather than generateToolOutput which ignores the image
-            result = await environment.vision.scan(image: ciImage, definition: tool, customPrompt: prompt)
-        } else {
-            result = await environment.vision.scan(image: ciImage, definition: tool)
-        }
-
-        if let result {
-            let execution = await environment.tools.execute(result: result, definition: tool)
-            environment.vision.lastResult = execution.scanResult
-            lastResult = execution.scanResult
-            appendToolResponses(execution.responses)
+        await LLMRequestQueue.shared.enqueue { [weak self] in
+            guard let self = self else { return }
             
-            // Auto-save scanned results if they are validated
-            if execution.scanResult.isValidated && execution.scanResult.hasData {
-                environment.storage.save(execution.scanResult, to: toolID)
-                loadStoredResults()
+            let preparedImage = ImageInputPreparer.preparedForModel(image)
+            guard let ciImage = ImageInputPreparer.ciImage(from: preparedImage) else {
+                await MainActor.run { self.promptResponses.append(ToolPromptResponse(text: "Failed to process image", isUser: false)) }
+                return
             }
-        }
-        
-        if let res = result,
-           let actionFieldValue = res.richFields["_action"],
-           case .string(let actionName) = actionFieldValue,
-           tool.runtimeActions?[actionName] == nil,
-           let actionDef = tool.actions?[actionName],
-           actionDef.effect == .run_js,
-           let script = actionDef.script {
-            if let data = try? JSONEncoder().encode(res),
-               let dataString = String(data: data, encoding: .utf8) {
-                NotificationCenter.default.post(
-                    name: NSNotification.Name("TriggerWebViewAction"),
-                    object: nil,
-                    userInfo: ["action": "run_script", "payload": ["script": script, "data": dataString]]
-                )
+            
+            let isLoaded = await MainActor.run { self.environment.vision.isModelLoaded }
+            if !isLoaded {
+                await self.environment.vision.loadModel()
+            }
+            
+            let definition = await MainActor.run { self.tool }
+            
+            let result: ScanResult?
+            if let prompt = customPrompt {
+                result = await self.environment.vision.scan(image: ciImage, definition: definition, customPrompt: prompt)
+            } else {
+                result = await self.environment.vision.scan(image: ciImage, definition: definition)
+            }
+
+            if let result {
+                let execution = await self.environment.tools.execute(result: result, definition: definition)
+                await MainActor.run {
+                    self.environment.vision.lastResult = execution.scanResult
+                    self.lastResult = execution.scanResult
+                    self.appendToolResponses(execution.responses)
+                    
+                    if execution.scanResult.isValidated && execution.scanResult.hasData {
+                        self.environment.storage.save(execution.scanResult, to: self.toolID)
+                        self.loadStoredResults()
+                    }
+                }
+            }
+            
+            await MainActor.run {
+                if let res = result,
+                   let actionFieldValue = res.richFields["_action"],
+                   case .string(let actionName) = actionFieldValue,
+                   self.tool.runtimeActions?[actionName] == nil,
+                   let actionDef = self.tool.actions?[actionName],
+                   actionDef.effect == .run_js,
+                   let script = actionDef.script {
+                    if let data = try? JSONEncoder().encode(res),
+                       let dataString = String(data: data, encoding: .utf8) {
+                        NotificationCenter.default.post(
+                            name: NSNotification.Name("TriggerWebViewAction"),
+                            object: nil,
+                            userInfo: ["action": "run_script", "payload": ["script": script, "data": dataString]]
+                        )
+                    }
+                }
             }
         }
     }

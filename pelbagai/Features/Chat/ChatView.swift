@@ -6,6 +6,7 @@ import UIKit
 #else
 import AppKit
 #endif
+import UniformTypeIdentifiers
 
 
 /// The main chat interface for the Pelbagai app.
@@ -20,6 +21,9 @@ struct ChatView: View {
     @State private var animateGradient = false
     @State private var isRotating = false
     @State private var showDeleteConfirmation = false
+    @State private var showRenameAlert = false
+    @State private var newSessionTitle = ""
+    @State private var showFilePicker = false
     
     init(sessionId: UUID, initialPrompt: String? = nil, env: AppEnvironment) {
         _viewModel = StateObject(wrappedValue: ChatViewModel(sessionId: sessionId, environment: env, initialPrompt: initialPrompt))
@@ -37,6 +41,9 @@ struct ChatView: View {
                             isRotating = true
                         }
                     }
+            } else if !viewModel.isModelLoaded && !env.gemma.selectedModel.isDownloaded {
+                downloadPromptOverlay
+                    .zIndex(1)
             } else {
                 VStack(spacing: 0) {
                     chatScrollView
@@ -53,7 +60,8 @@ struct ChatView: View {
                             pendingImage: $viewModel.pendingImage,
                             onMicTap: viewModel.handleMicTap,
                             onCameraTap: { viewModel.showCamera = true },
-                            onSend: viewModel.sendTypedMessage,
+                            onFileTap: { showFilePicker = true },
+                            onSend: viewModel.sendTypedMessage
                         )
                     }
                     .padding(.vertical, 8)
@@ -74,6 +82,14 @@ struct ChatView: View {
             CameraView(image: $viewModel.capturedImage)
         }
 #endif
+        .fileImporter(
+            isPresented: $showFilePicker,
+            allowedContentTypes: [.pdf, .plainText],
+            allowsMultipleSelection: false
+        ) { result in
+            viewModel.handleImportedFile(result: result)
+        }
+
         .onChange(of: viewModel.capturedImage) { _, newImage in
             if let image = newImage {
                 viewModel.capturedImage = nil
@@ -104,6 +120,14 @@ struct ChatView: View {
                     Image(systemName: ttsEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
                         .foregroundColor(ttsEnabled ? .cyan : .primary.opacity(0.4))
                 }
+
+                Button {
+                    newSessionTitle = viewModel.messages.first?.content.prefix(30).description ?? ""
+                    showRenameAlert = true
+                } label: {
+                    Image(systemName: "pencil")
+                        .foregroundColor(.cyan)
+                }
                 
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
@@ -112,6 +136,23 @@ struct ChatView: View {
                         .foregroundColor(.red.opacity(0.8))
                 }
             }
+        }
+        .alert("Rename Chat", isPresented: $showRenameAlert) {
+            TextField("Chat Title", text: $newSessionTitle)
+            Button("Cancel", role: .cancel) {}
+            Button("Rename") {
+                viewModel.renameSession(to: newSessionTitle)
+            }
+        }
+        .alert("Large Download", isPresented: $viewModel.showDownloadWarning) {
+            Button("Download Anyway") {
+                viewModel.confirmDownload()
+            }
+            Button("Cancel", role: .cancel) {
+                // If they cancel, they stay in Chat but model won't load
+            }
+        } message: {
+            Text("You are currently on a cellular connection or hotspot. Downloading the AI model requires several gigabytes of data. Do you want to proceed?")
         }
         .confirmationDialog("Delete Chat?", isPresented: $showDeleteConfirmation, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
@@ -180,6 +221,46 @@ struct ChatView: View {
                 .font(.system(size: 11, weight: pulsing ? .bold : .medium, design: .rounded))
                 .foregroundColor(color.opacity(pulsing ? 1.0 : 0.8))
         }
+    }
+    
+    private var downloadPromptOverlay: some View {
+        VStack(spacing: 24) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 60))
+                .foregroundStyle(LinearGradient(colors: [.blue, .cyan], startPoint: .topLeading, endPoint: .bottomTrailing))
+            
+            VStack(spacing: 8) {
+                Text("Model Download Required")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                
+                Text("The \(env.gemma.selectedModel.displayName) model is not yet on this device. You need to download it to start chatting.")
+                    .font(.system(size: 14))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            
+            Button {
+                viewModel.confirmDownload()
+            } label: {
+                Text("Download Now")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color.blue)
+                    .cornerRadius(16)
+            }
+            .padding(.horizontal, 20)
+            
+            Text("Size: ~2GB")
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+        .padding(40)
+        .background(.ultraThinMaterial)
+        .cornerRadius(32)
+        .shadow(color: Color.black.opacity(0.1), radius: 20, x: 0, y: 10)
+        .padding(.horizontal, 40)
     }
     
     private var modelLoadingOverlay: some View {
@@ -473,26 +554,52 @@ struct ChatBubble: View {
             if message.role == .user { Spacer(minLength: 40) }
             
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
-                MarkdownContentView(text: message.content)
-                    .foregroundColor(.primary)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .fill(message.role == .user ? Color.primary.opacity(0.1) : Color.primary.opacity(0.05))
-                            .background(
-                                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                    .fill(.ultraThinMaterial)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                    .stroke(
-                                        Color.primary.opacity(0.1),
-                                        lineWidth: 0.5
-                                    )
-                            )
-                            .shadow(color: message.role == .user ? Color.primary.opacity(0.05) : Color.clear, radius: 10, x: 0, y: 5)
-                    )
+                // Generic Attachments
+                if !message.attachments.isEmpty {
+                    ForEach(message.attachments) { attachment in
+                        FileAttachmentView(attachment: attachment)
+                            .padding(.bottom, 4)
+                    }
+                } else if message.content == "[Audio Message]" {
+                    Label("Voice message", systemImage: "waveform")
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .fill(Color.primary.opacity(0.1))
+                                .background(
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .fill(.ultraThinMaterial)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                                )
+                        )
+                } else {
+                    MarkdownContentView(text: message.content)
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .fill(message.role == .user ? Color.primary.opacity(0.1) : Color.primary.opacity(0.05))
+                                .background(
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .fill(.ultraThinMaterial)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .stroke(
+                                            Color.primary.opacity(0.1),
+                                            lineWidth: 0.5
+                                        )
+                                )
+                                .shadow(color: message.role == .user ? Color.primary.opacity(0.05) : Color.clear, radius: 10, x: 0, y: 5)
+                        )
+                }
                 
                 if let imageData = message.imageData {
                     AsyncDataImageView(imageData: imageData)
@@ -505,6 +612,65 @@ struct ChatBubble: View {
             
             if message.role == .assistant { Spacer(minLength: 40) }
         }
+    }
+}
+
+struct FileAttachmentView: View {
+    let attachment: ChatAttachment
+    
+    private var iconName: String {
+        switch attachment.fileType.lowercased() {
+        case "pdf": return "doc.fill"
+        case "txt", "text": return "doc.text.fill"
+        case "doc", "docx": return "doc.richtext.fill"
+        default: return "doc.fill"
+        }
+    }
+    
+    private var iconColor: Color {
+        switch attachment.fileType.lowercased() {
+        case "pdf": return .red
+        case "txt", "text": return .blue
+        default: return .secondary
+        }
+    }
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(iconColor.opacity(0.1))
+                    .frame(width: 40, height: 40)
+                
+                Image(systemName: iconName)
+                    .foregroundColor(iconColor)
+                    .font(.system(size: 20))
+            }
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(attachment.filename)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
+                
+                Text(attachment.fileType.uppercased() + " Document")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+            
+            Spacer()
+            
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.secondary.opacity(0.5))
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.primary.opacity(0.05))
+                .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
+        )
+        .frame(maxWidth: 240)
     }
 }
 

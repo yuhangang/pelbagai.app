@@ -36,6 +36,7 @@ struct ChatInputView: View {
     
     var onMicTap: () -> Void
     var onCameraTap: () -> Void
+    var onFileTap: () -> Void
     var onSend: () -> Void
     
     @Environment(\.colorScheme) private var colorScheme
@@ -109,8 +110,18 @@ struct ChatInputView: View {
                             .foregroundColor(.primary.opacity(0.7))
                             .frame(width: 36, height: 36)
                     }
-                    .disabled(isLoadingModels || isGenerating)
-                    .opacity(isLoadingModels ? 0.4 : 1.0)
+                    .disabled(isLoadingModels || isGenerating || !isModelLoaded)
+                    .opacity(isLoadingModels || !isModelLoaded ? 0.4 : 1.0)
+
+                    // File button
+                    Button(action: onFileTap) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 20))
+                            .foregroundColor(.primary.opacity(0.7))
+                            .frame(width: 36, height: 36)
+                    }
+                    .disabled(isLoadingModels || isGenerating || !isModelLoaded)
+                    .opacity(isLoadingModels || !isModelLoaded ? 0.4 : 1.0)
                     
                     // Mic button
                     Button(action: onMicTap) {
@@ -130,8 +141,8 @@ struct ChatInputView: View {
                                 .frame(width: 36, height: 36)
                         }
                     }
-                    .disabled(isLoadingModels || isGenerating)
-                    .opacity(isLoadingModels ? 0.4 : 1.0)
+                    .disabled(isLoadingModels || isGenerating || !isModelLoaded)
+                    .opacity(isLoadingModels || !isModelLoaded ? 0.4 : 1.0)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)

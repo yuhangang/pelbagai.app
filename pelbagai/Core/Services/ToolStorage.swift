@@ -91,19 +91,27 @@ class ToolStorage: ObservableObject {
         var storedResult = result
         storedResult.toolID = normalizedToolID
         var existing = loadAll(from: normalizedToolID)
-        existing.append(storedResult)
-        writeAll(existing, to: normalizedToolID)
+        
+        // Prevent duplicates by ID
+        if !existing.contains(where: { $0.id == result.id }) {
+            existing.append(storedResult)
+            writeAll(existing, to: normalizedToolID)
+        }
     }
     
     /// Saves multiple results to a tool's storage, appending to existing data.
     func saveAll(_ results: [ScanResult], to toolID: String) {
         let normalizedToolID = normalizedToolID(for: toolID)
         var existing = loadAll(from: normalizedToolID)
-        existing.append(contentsOf: results.map { result in
-            var storedResult = result
-            storedResult.toolID = normalizedToolID
-            return storedResult
-        })
+        
+        for result in results {
+            if !existing.contains(where: { $0.id == result.id }) {
+                var storedResult = result
+                storedResult.toolID = normalizedToolID
+                existing.append(storedResult)
+            }
+        }
+        
         writeAll(existing, to: normalizedToolID)
     }
     

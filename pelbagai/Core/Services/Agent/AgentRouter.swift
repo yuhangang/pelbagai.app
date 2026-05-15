@@ -26,15 +26,15 @@ final class AgentRouter {
             names.append("get_current_time")
         }
 
-        if containsAny(["schedule", "calendar", "meeting", "event", "appointment"], in: normalized) {
-            if containsAny(["add", "create", "schedule", "book", "set up"], in: normalized) {
+        if containsAny(["schedule", "calendar", "meeting", "event", "appointment", "tomorrow", "tmr", "today"], in: normalized) {
+            if containsAny(["add", "create", "generate", "make", "new", "schedule", "book", "set up", "set"], in: normalized) {
                 names.append("add_calendar_event")
             }
             names.append("get_calendar_events")
         }
 
-        if containsAny(["reminder", "remind me", "todo", "to-do"], in: normalized) {
-            if containsAny(["add", "create", "set", "remind me"], in: normalized) {
+        if containsAny(["reminder", "remind me", "todo", "to-do", "tomorrow", "tmr", "today"], in: normalized) {
+            if containsAny(["add", "create", "generate", "make", "new", "set", "remind me"], in: normalized) {
                 names.append("add_reminder")
             }
             names.append("get_reminders")

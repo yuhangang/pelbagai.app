@@ -73,7 +73,7 @@
         "Work Phone": "+1 202-555-0100 ext. 402",
         "Address": "450 Industrial Way, Suite 200, Seattle, WA 98101",
         "Website": "www.globallogistics.com",
-        "Social Media": "[\"linkedin.com/in/sjenkins-logistics\", \"@sjenkins_sales\"]"
+        "Social Media": ["linkedin.com/in/sjenkins-logistics", "@sjenkins_sales"]
       }
     ]
   },
@@ -119,7 +119,7 @@
         "Total": "$42.15",
         "Tax": "$2.15",
         "Payment Method": "Visa ****1234",
-        "Items": "[\"Organic Bananas - $2.50\", \"Almond Milk - $4.99\", \"Whole Wheat Bread - $3.50\", \"Avocados (3) - $6.00\"]"
+        "Items": ["Organic Bananas - $2.50", "Almond Milk - $4.99", "Whole Wheat Bread - $3.50", "Avocados (3) - $6.00"]
       }
     ]
   },

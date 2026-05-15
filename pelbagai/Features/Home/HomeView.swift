@@ -70,7 +70,7 @@ struct HomeView: View {
             isModelLoaded: viewModel.isModelLoaded,
             userDefinitionsCount: viewModel.userDefinitionsCount,
             pendingImage: $viewModel.pendingImage,
-            onMicTap: { }, onCameraTap: { },
+            onMicTap: { }, onCameraTap: { }, onFileTap: {},
             onSend: {
                 let id = viewModel.startNewQuickChat()
                 isChatBarFocused = false

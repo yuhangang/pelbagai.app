@@ -84,7 +84,7 @@ class VisionManager: ObservableObject {
         
         print("📷 Starting scan (Headroom: \(headroom)MB, Image: \(Int(resizedImage.extent.width))x\(Int(resizedImage.extent.height)))")
         
-        let maxTokens = maxGeneratedTokens
+        let maxTokens = maxGeneratedTokens(for: definition)
         
         do {
             let userInput = UserInput(
@@ -114,6 +114,10 @@ class VisionManager: ObservableObject {
                     }
                     
                     let text = context.tokenizer.decode(tokenIds: tokens)
+                    if tokens.count >= 16, Self.containsCompleteJSONObject(in: text) {
+                        return .stop
+                    }
+                    
                     if text.contains("</s>") || text.contains("<end_of_turn>") || text.contains("<eos>") {
                         return .stop
                     }
@@ -392,6 +396,58 @@ class VisionManager: ObservableObject {
         """
     }
     
+    private func maxGeneratedTokens(for definition: LocalToolDefinition) -> Int {
+        switch definition.toolID {
+        case "business_card":
+            return 384
+        case "receipt", "custom":
+            return 640
+        case "wikipedia":
+            return 192
+        default:
+            let visibleFieldBudget = max(256, definition.outputSchema.count * 48)
+            return min(maxGeneratedTokens, visibleFieldBudget)
+        }
+    }
+    
+    nonisolated private static func containsCompleteJSONObject(in text: String) -> Bool {
+        guard let start = text.firstIndex(of: "{") else { return false }
+        
+        var depth = 0
+        var isInString = false
+        var isEscaped = false
+        
+        for character in text[start...] {
+            if isEscaped {
+                isEscaped = false
+                continue
+            }
+            
+            if character == "\\" {
+                isEscaped = isInString
+                continue
+            }
+            
+            if character == "\"" {
+                isInString.toggle()
+                continue
+            }
+            
+            guard !isInString else { continue }
+            
+            if character == "{" {
+                depth += 1
+            } else if character == "}" {
+                depth -= 1
+                if depth == 0 {
+                    return true
+                }
+            }
+        }
+        
+        return false
+    }
+    
     private static func parseAction(_ raw: [String: Any]) -> ToolAction? {
         guard let typeValue = raw["type"] as? String,
               let type = ToolAction.ActionType(rawValue: typeValue) else {
@@ -412,7 +468,8 @@ class VisionManager: ObservableObject {
     /// Extracts a JSON object substring from the model output.
     private func extractJSON(from text: String) -> String {
         guard let startIndex = text.firstIndex(of: "{"),
-              let endIndex = text.lastIndex(of: "}") else {
+              let endIndex = text.lastIndex(of: "}"),
+              startIndex <= endIndex else {
             return text
         }
         return String(text[startIndex...endIndex])

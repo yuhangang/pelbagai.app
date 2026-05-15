@@ -173,7 +173,7 @@ public nonisolated class Gemma4Model: Module, VLMModel, KVCacheDimensionProvider
             inputIds: input.text.tokens,
             pixelValues: input.image?.pixels,
             audioFeatures: input.audio?.features,
-            audioInvalidMask: nil
+            audioInvalidMask: input.audio?.mask
         )
 
         let result = languageModel(

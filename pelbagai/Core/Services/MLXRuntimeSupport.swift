@@ -85,6 +85,27 @@ struct TransformersTokenizerBridge: MLXLMCommon.Tokenizer, Sendable {
     }
 }
 
+func downloadRemoteModel(
+    configuration: ModelConfiguration,
+    progressHandler: @Sendable @escaping (Progress) -> Void = { _ in }
+) async throws -> URL {
+    let hub = HubApi(useOfflineMode: false)
+    setenv("CI_DISABLE_NETWORK_MONITOR", "1", 1)
+    
+    let downloader = HubDownloaderBridge(hub: hub)
+    
+    // Use the same patterns as MLXLMCommon to ensure all required weights and configs are downloaded
+    let patterns = ["*.json", "*.safetensors", "*.model", "*.txt", "*.tiktoken"]
+    
+    return try await downloader.download(
+        id: configuration.name,
+        revision: nil,
+        matching: patterns,
+        useLatest: false,
+        progressHandler: progressHandler
+    )
+}
+
 func loadRemoteModelContainer(
     configuration: ModelConfiguration,
     progressHandler: @Sendable @escaping (Progress) -> Void = { _ in }
@@ -98,7 +119,8 @@ func loadRemoteModelContainer(
     setenv("CI_DISABLE_NETWORK_MONITOR", "1", 1)
 
     if configuration.name.contains("gemma-4-") {
-        Gemma4Registration.setAudioCapabilityEnabled(false)
+        let audioEnabled = VoiceRuntimePolicy.shouldLoadGemmaAudioTower(modelID: configuration.name)
+        Gemma4Registration.setAudioCapabilityEnabled(audioEnabled)
         Gemma4Processor.setRuntimeImageSoftTokenCap(32)
         await Gemma4Registration.register()
 
@@ -117,7 +139,7 @@ func loadRemoteModelContainer(
             return Gemma4Processor(configuration, tokenizer: tokenizer)
         }
 
-        print("🧠 [MLXModelManager] Using app-owned Gemma 4 VLM runtime")
+        print("🧠 [MLXModelManager] Using app-owned Gemma 4 VLM runtime (audio: \(audioEnabled ? "enabled" : "disabled"))")
         let gemma4Factory = VLMModelFactory(
             typeRegistry: modelRegistry,
             processorRegistry: processorRegistry,

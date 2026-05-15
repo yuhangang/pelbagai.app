@@ -29,6 +29,17 @@ nonisolated enum GemmaModel: String, CaseIterable, Identifiable {
         case .e4b: return "mlx-community/gemma-4-e4b-it-4bit"
         }
     }
+
+    init?(modelID: String) {
+        switch modelID {
+        case GemmaModel.e2b.modelID:
+            self = .e2b
+        case GemmaModel.e4b.modelID:
+            self = .e4b
+        default:
+            return nil
+        }
+    }
     
     var isDownloaded: Bool {
         let repo = HubApi.Repo(id: modelID)
@@ -94,6 +105,9 @@ class GemmaManager: ObservableObject {
     var isModelLoaded: Bool { MLXModelManager.shared.isLoaded }
     @Published var isGenerating: Bool = false
     @Published var status: String = ""
+    @Published var isDownloading: Bool = false
+    @Published var downloadingModel: GemmaModel?
+    @Published var downloadProgress: Double = 0
     @Published private(set) var lastErrorMessage: String?
     
     private var modelID: String {
@@ -190,10 +204,9 @@ class GemmaManager: ObservableObject {
         
         Task { @MainActor in
             if model.isDownloaded {
-                print("🧠 [GemmaManager] Model \(model.displayName) is already downloaded. Auto-initializing...")
-                await self.loadModel()
+                print("🧠 [GemmaManager] Model \(model.displayName) is already downloaded. Will load on demand.")
             } else {
-                print("🧠 [GemmaManager] Model \(model.displayName) is not downloaded. Skipping auto-initialization.")
+                print("🧠 [GemmaManager] Model \(model.displayName) is not downloaded. Skipping.")
             }
         }
     }
@@ -201,28 +214,73 @@ class GemmaManager: ObservableObject {
     /// Switches to a new model, unloading the current one if necessary.
     func switchModel(to model: GemmaModel) async {
         guard model.isSupported else { return }
-        guard model != selectedModel else { return }
         guard !isGenerating else { return }
+        
+        // If it's already selected and loaded, nothing to do
+        if model == selectedModel && isModelLoaded && MLXModelManager.shared.currentModelID == model.modelID {
+            return
+        }
         
         print("🧠 Switching Gemma model to: \(model.displayName)")
         
-        let previousModel = selectedModel
-        let previouslyLoadedModelID = MLXModelManager.shared.currentModelID
+        // Always commit the selection as the user's intent
+        commitSelectedModel(model)
+        
+        // If the model is already downloaded, try to load it
+        if model.isDownloaded {
+            do {
+                try await load(model: model)
+            } catch {
+                print("🧠 Failed to load Gemma model \(model.displayName): \(error)")
+                lastErrorMessage = error.localizedDescription
+            }
+        } else {
+            // Unload current if we are switching to a non-downloaded model
+            await MLXModelManager.shared.unloadModel()
+        }
+    }
+    
+    func downloadModel(_ model: GemmaModel) async {
+        guard !isDownloading else { return }
+        isDownloading = true
+        downloadingModel = model
+        downloadProgress = 0
         
         do {
-            try await load(model: model)
-            commitSelectedModel(model)
-        } catch {
-            print("🧠 Failed to switch Gemma model to \(model.displayName): \(error)")
-            
-            if previouslyLoadedModelID == previousModel.modelID {
-                do {
-                    try await load(model: previousModel)
-                    commitSelectedModel(previousModel)
-                } catch {
-                    print("🧠 Failed to restore previous Gemma model \(previousModel.displayName): \(error)")
+            try await MLXModelManager.shared.loadModel(modelID: model.modelID) { progress in
+                Task { @MainActor in
+                    self.downloadProgress = progress.fractionCompleted
                 }
             }
+            // If it was the selected model, ensure state is updated
+            if model == selectedModel {
+                objectWillChange.send()
+            }
+        } catch {
+            print("🧠 Failed to download model: \(error)")
+        }
+        
+        isDownloading = false
+        downloadingModel = nil
+    }
+    
+    func deleteModel(_ model: GemmaModel) async {
+        let repo = HubApi.Repo(id: model.modelID)
+        let localURL = HubApi().localRepoLocation(repo)
+        
+        do {
+            if FileManager.default.fileExists(atPath: localURL.path) {
+                // Unload if it's the current model
+                if model.modelID == MLXModelManager.shared.currentModelID {
+                    await MLXModelManager.shared.unloadModel()
+                }
+                
+                try FileManager.default.removeItem(at: localURL)
+                print("🧠 Deleted model folder: \(localURL.path)")
+                objectWillChange.send()
+            }
+        } catch {
+            print("🧠 Failed to delete model: \(error)")
         }
     }
     
@@ -336,21 +394,28 @@ class GemmaManager: ObservableObject {
     
     /// Generates a response from the transcribed user input, raw audio, or image.
     /// Streams tokens into `self.response` for real-time UI updates.
-    func generate(prompt: String, image: UIImage? = nil, audio: [Float]? = nil, history: [ChatMessage] = []) async {
-        guard !isGenerating else { return }
-        
+    func generate(prompt: String, image: UIImage? = nil, audio: [Float]? = nil, history: [ChatMessage] = []) async -> String {
+        guard !isGenerating else { 
+            print("⚠️ [Gemma] Generation already in progress, skipping multimodal request.")
+            return ""
+        }
+
+        print("🔮 [Gemma] Starting multimodal generation. prompt: \"\(prompt.prefix(30))...\"")
         isGenerating = true
         response = ""
         clarificationRequest = nil
         lastErrorMessage = nil
-        status = ""
+        status = "Thinking..."
+        
         defer {
             if image != nil {
                 Gemma4Processor.setRuntimeImageSoftTokenCap(32)
             }
             status = ""
+            response = ""
             isGenerating = false
             MLXModelManager.shared.clearCache()
+            print("🔮 [Gemma] Multimodal generation finished.")
         }
         
         print("🧠 Generating response for: \(prompt)")
@@ -359,15 +424,17 @@ class GemmaManager: ObservableObject {
             if audio == nil, image == nil, let toolCall = explicitLocalToolRequest(for: prompt) {
                 status = "Using \(nativePlugins.chatTool(named: toolCall.name)?.displayName ?? toolCall.name)..."
                 let toolResult = await executeTool(toolCall)
-                response = finalAnswer(for: toolCall, result: toolResult)
+                let finalRes = finalAnswer(for: toolCall, result: toolResult)
+                response = finalRes
                 print("🧠 Handled local tool without model generation: \(toolCall.name)")
-                return
+                return finalRes
             }
 
             guard let container = MLXModelManager.shared.container else {
                 print("🧠 Model not loaded yet")
-                response = "Model is not loaded yet."
-                return
+                let errorMsg = "Model is not loaded yet."
+                response = errorMsg
+                return errorMsg
             }
 
             var messages = buildMessages(prompt: prompt, history: history)
@@ -390,6 +457,7 @@ class GemmaManager: ObservableObject {
                 let currentImageSoftTokenRetryCap = imageSoftTokenRetryCap
                 let shouldUseMultimodalInput = (audio != nil || image != nil)
                     && (currentIteration == 1 || currentImageSoftTokenRetryCap != nil)
+                
                 let rawOutput = try await container.perform { context in
                     let input: MLXLMCommon.LMInput
                     
@@ -530,34 +598,50 @@ class GemmaManager: ObservableObject {
             }
             
             print("🧠 Generation complete")
+            return response
             
         } catch {
             print("🧠 Generation error: \(error)")
             lastErrorMessage = error.localizedDescription
-            self.response = "I hit a local model error: \(error.localizedDescription)"
+            let errorMsg = "I hit a local model error: \(error.localizedDescription)"
+            self.response = errorMsg
+            return errorMsg
         }
     }
 
     /// Generates text from fully prepared chat messages. Agent orchestration,
     /// tool routing, and memory injection live outside this manager.
-    func generateText(messages: [[String: String]], statusText: String = "Thinking...") async -> String {
-        guard !isGenerating else { return "" }
+    func generateText(messages: [[String: String]], statusText: String = "Thinking...", silent: Bool = false) async -> String {
+        guard !isGenerating else { 
+            print("⚠️ [Gemma] Generation already in progress, skipping text request (silent: \(silent))")
+            return "" 
+        }
 
+        print("🔮 [Gemma] Starting text generation (silent: \(silent)). status: \(statusText)")
         isGenerating = true
-        response = ""
-        clarificationRequest = nil
-        lastErrorMessage = nil
-        status = statusText
+        if !silent {
+            response = ""
+            clarificationRequest = nil
+            lastErrorMessage = nil
+            status = statusText
+        }
         defer {
-            status = ""
+            if !silent {
+                status = ""
+                response = ""
+            }
             isGenerating = false
             MLXModelManager.shared.clearCache()
+            print("🔮 [Gemma] Text generation finished (silent: \(silent)).")
         }
 
         guard let container = MLXModelManager.shared.container else {
-            response = "Model is not loaded yet."
-            lastErrorMessage = response
-            return response
+            let errorMsg = "Model is not loaded yet."
+            if !silent {
+                response = errorMsg
+                lastErrorMessage = errorMsg
+            }
+            return errorMsg
         }
 
         let maxTokens = maxGeneratedTokens
@@ -568,8 +652,25 @@ class GemmaManager: ObservableObject {
         do {
             let rawOutput = try await container.perform { context in
                 print("🧠 [GemmaManager] Starting MLXLMCommon.generate (text-only) on \(device)...")
+                
+                // Convert dictionary messages to Chat.Message objects to ensure
+                // the processor uses the chat template correctly.
+                let chatMessages = messages.compactMap { dict -> Chat.Message? in
+                    guard let roleStr = dict["role"],
+                          let content = dict["content"] else { return nil }
+                    let role: Chat.Message.Role
+                    if roleStr == "model" || roleStr == "assistant" {
+                        role = .assistant
+                    } else if roleStr == "system" {
+                        role = .system
+                    } else {
+                        role = .user
+                    }
+                    return Chat.Message(role: role, content: content)
+                }
+                
                 let input = try await context.processor.prepare(
-                    input: .init(messages: messages)
+                    input: .init(chat: chatMessages)
                 )
                 
                 let result = try MLXLMCommon.generate(
@@ -581,8 +682,10 @@ class GemmaManager: ObservableObject {
                     if tokens.count >= maxTokens { return .stop }
 
                     if tokens.count % 32 == 0, MemoryStats.headroomMB < 200 {
-                        Task { @MainActor in
-                            self.response += "\n\n> ⚠️ Stopped due to low memory. Please close background apps."
+                        if !silent {
+                            Task { @MainActor in
+                                self.response += "\n\n> ⚠️ Stopped due to low memory. Please close background apps."
+                            }
                         }
                         return .stop
                     }
@@ -592,17 +695,21 @@ class GemmaManager: ObservableObject {
                     let visibleText = Self.visibleOutput(from: cleanedText)
 
                     for stopSeq in Self.stopSequences where text.contains(stopSeq) {
-                        Task { @MainActor in self.response = visibleText }
+                        if !silent {
+                            Task { @MainActor in self.response = visibleText }
+                        }
                         return .stop
                     }
 
-                    Task { @MainActor in
-                        if Self.hasPartialToolCall(in: cleanedText) {
-                            self.status = "Checking local context..."
-                        } else if Self.hasPartialClarify(in: cleanedText) {
-                            self.status = "Structuring clarification..."
+                    if !silent {
+                        Task { @MainActor in
+                            if Self.hasPartialToolCall(in: cleanedText) {
+                                self.status = "Checking local context..."
+                            } else if Self.hasPartialClarify(in: cleanedText) {
+                                self.status = "Structuring clarification..."
+                            }
+                            self.response = visibleText
                         }
-                        self.response = visibleText
                     }
                     return .more
                 }
@@ -610,13 +717,18 @@ class GemmaManager: ObservableObject {
             }
 
             let cleaned = Self.cleanModelOutput(rawOutput)
-            response = Self.visibleOutput(from: cleaned)
+            if !silent {
+                response = Self.visibleOutput(from: cleaned)
+            }
             return cleaned
         } catch {
             print("🧠 Generation error: \(error)")
-            lastErrorMessage = error.localizedDescription
-            response = "I hit a local model error: \(error.localizedDescription)"
-            return response
+            let errorMsg = "I hit a local model error: \(error.localizedDescription)"
+            if !silent {
+                lastErrorMessage = error.localizedDescription
+                response = errorMsg
+            }
+            return errorMsg
         }
     }
 
@@ -624,19 +736,19 @@ class GemmaManager: ObservableObject {
     private func buildMessages(prompt: String, history: [ChatMessage]) -> [[String: String]] {
         var messages: [[String: String]] = [
             ["role": "system", "content": systemPrompt],
-            ["role": "assistant", "content": systemAck]
+            ["role": "model", "content": systemAck]
         ]
         
         let recentHistory = history.suffix(8)
         for message in recentHistory {
             let content = message.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !content.isEmpty else { continue }
+            guard !content.isEmpty, !Self.isMediaPlaceholder(content) else { continue }
             
             switch message.role {
             case .user:
                 messages.append(["role": "user", "content": content])
             case .assistant:
-                messages.append(["role": "assistant", "content": content])
+                messages.append(["role": "model", "content": content])
             case .system:
                 continue
             }
@@ -644,6 +756,15 @@ class GemmaManager: ObservableObject {
         
         messages.append(["role": "user", "content": prompt])
         return messages
+    }
+
+    nonisolated private static func isMediaPlaceholder(_ content: String) -> Bool {
+        switch content {
+        case "[Audio Message]", "[Audio Input]", "[Image Message]":
+            return true
+        default:
+            return false
+        }
     }
     
     nonisolated private static func cleanModelOutput(_ output: String) -> String {

@@ -8,6 +8,13 @@ class SettingsViewModel: ObservableObject {
     @Published var loadingStatus = ""
     @Published var selectedModel: GemmaModel = .e2b // Default, will sync
     @Published var preferredBackend: MLXBackend = .gpu
+    @Published var isModelLoaded: Bool = false
+    @Published var isDownloading: Bool = false
+    @Published var downloadingModel: GemmaModel?
+    @Published var downloadProgress: Double = 0
+    
+    @Published var showDownloadWarning = false
+    @Published var pendingModel: GemmaModel?
     
     private var cancellables = Set<AnyCancellable>()
     
@@ -39,9 +46,83 @@ class SettingsViewModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] in self?.preferredBackend = $0 }
             .store(in: &cancellables)
+            
+        environment.gemma.$isDownloading
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.isDownloading = $0 }
+            .store(in: &cancellables)
+            
+        environment.gemma.$downloadProgress
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.downloadProgress = $0 }
+            .store(in: &cancellables)
+            
+        environment.gemma.$downloadingModel
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.downloadingModel = $0 }
+            .store(in: &cancellables)
     }
     
-    func switchModel(to newModel: GemmaModel) {
+    func switchModel(to model: GemmaModel) {
+        guard model != selectedModel else { return }
+        
+        // Update local state immediately for UI responsiveness
+        selectedModel = model
+        
+        Task {
+            await environment.gemma.switchModel(to: model)
+        }
+    }
+    
+    func downloadModel(_ model: GemmaModel) {
+        if NetworkService.shared.isCellularOrHotspot {
+            pendingModel = model
+            showDownloadWarning = true
+            return
+        }
+        
+        performManualDownload(model: model)
+    }
+    
+    private func performManualDownload(model: GemmaModel) {
+        Task {
+            await environment.gemma.downloadModel(model)
+        }
+    }
+    
+    func deleteModel(_ model: GemmaModel) {
+        Task {
+            await environment.gemma.deleteModel(model)
+        }
+    }
+    
+    func confirmDownload() {
+        if let model = pendingModel {
+            performManualDownload(model: model)
+            pendingModel = nil
+        }
+        showDownloadWarning = false
+    }
+    
+    func cancelDownload() {
+        pendingModel = nil
+        showDownloadWarning = false
+    }
+
+    func setGemma4AudioInputEnabled(_ enabled: Bool) {
+        UserDefaults.standard.set(enabled, forKey: "gemma4AudioInputEnabled")
+
+        Task {
+            let wasLoaded = environment.gemma.isModelLoaded
+            await environment.unloadAllModels()
+
+            if wasLoaded, environment.gemma.selectedModel.isDownloaded {
+                _ = await environment.gemma.loadModel()
+            }
+        }
+    }
+    
+    private func performModelSwitch(to newModel: GemmaModel) {
         Task {
             await environment.unloadAllModels()
             await environment.gemma.switchModel(to: newModel)

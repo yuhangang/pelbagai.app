@@ -91,6 +91,20 @@ class MLXModelManager: ObservableObject {
         print("🧠 [MLXModelManager] Preferred backend set to: \(backend.displayName)")
     }
     
+    /// Downloads a model without loading it into GPU memory.
+    func downloadModel(modelID: String, progressHandler: @Sendable @escaping (Progress) -> Void = { _ in }) async throws {
+        let modelConfig: ModelConfiguration
+        if modelID.contains("gemma-4-") {
+            modelConfig = VLMModelFactory.shared.configuration(id: modelID)
+        } else {
+            modelConfig = ModelConfiguration(id: modelID)
+        }
+        _ = try await downloadRemoteModel(
+            configuration: modelConfig,
+            progressHandler: progressHandler
+        )
+    }
+
     /// Loads a model container if it's not already loaded or if the model ID has changed.
     func loadModel(modelID: String, progressHandler: @Sendable @escaping (Progress) -> Void = { _ in }) async throws {
         if isLoaded && currentModelID == modelID {

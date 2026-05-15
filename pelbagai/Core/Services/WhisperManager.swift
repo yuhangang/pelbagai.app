@@ -6,9 +6,33 @@ import Combine
 
 @MainActor
 class WhisperManager: ObservableObject {
+    enum WhisperManagerError: LocalizedError {
+        case emptyAudio
+        case emptyTranscript
+
+        var errorDescription: String? {
+            switch self {
+            case .emptyAudio:
+                return "No audio was recorded."
+            case .emptyTranscript:
+                return "I could not hear a clear spoken message."
+            }
+        }
+    }
+
     @Published var transcript: String = ""
     @Published var isRecording: Bool = false
     @Published var isModelLoaded: Bool = false
+    
+    var isDownloaded: Bool {
+        let fileManager = FileManager.default
+        if let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first {
+            // Check for a key file that indicates the model is present
+            let configPath = documentsURL.appendingPathComponent("huggingface/models/openai/whisper-medium/tokenizer_config.json").path
+            return fileManager.fileExists(atPath: configPath)
+        }
+        return false
+    }
     
     static let shared = WhisperManager()
     
@@ -82,6 +106,31 @@ class WhisperManager: ObservableObject {
         }
         self.whisperKit = nil
         self.isModelLoaded = false
+    }
+
+    func transcribe(samples: [Float]) async throws -> String {
+        guard !samples.isEmpty else {
+            throw WhisperManagerError.emptyAudio
+        }
+        if whisperKit == nil {
+            await loadModel()
+        }
+        guard let whisperKit else {
+            throw WhisperManagerError.emptyTranscript
+        }
+
+        print("🤖 Whisper: Transcribing one-shot audio with \(samples.count) samples...")
+        let result = try await whisperKit.transcribe(audioArray: samples)
+        let text = result.map(\.text)
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !text.isEmpty else {
+            throw WhisperManagerError.emptyTranscript
+        }
+
+        transcript = text
+        return text
     }
     
     func toggleRecording() {

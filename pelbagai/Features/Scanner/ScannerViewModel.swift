@@ -23,6 +23,9 @@ class ScannerViewModel: ObservableObject {
     @Published var editingResult: ScanResult?
     @Published var showEditSheet = false
     
+    @Published var showDownloadWarning = false
+    private var pendingImageToProcess: UIImage?
+    
     // Model state mirroring
     @Published var isLoadingModel = false
     @Published var loadingText = ""
@@ -101,6 +104,13 @@ class ScannerViewModel: ObservableObject {
     
     func handlePhotoSelection(_ item: PhotosPickerItem?) async {
         guard let item else { return }
+        
+        // Only allow if model is downloaded
+        guard environment.gemma.selectedModel.isDownloaded else {
+            print("🧠 Scanner: Model not downloaded, skipping auto-load")
+            return
+        }
+        
         if !environment.vision.isModelLoaded { await environment.vision.loadModel() }
         if let data = try? await item.loadTransferable(type: Data.self),
            let uiImage = ImageInputPreparer.image(from: data) {
@@ -109,21 +119,54 @@ class ScannerViewModel: ObservableObject {
         }
     }
     
+    func confirmDownload() {
+        showDownloadWarning = false
+        Task {
+            await environment.gemma.downloadModel(environment.gemma.selectedModel)
+            if let image = pendingImageToProcess {
+                capturedImage = image
+                await processImage(image)
+                pendingImageToProcess = nil
+            }
+        }
+    }
+    
+    func downloadModel() {
+        Task {
+            await environment.gemma.downloadModel(environment.gemma.selectedModel)
+        }
+    }
+    
     func processImage(_ image: UIImage) async {
-        let preparedImage = ImageInputPreparer.preparedForModel(image)
-        guard let ciImage = ImageInputPreparer.ciImage(from: preparedImage) else {
-            environment.vision.status = "Failed to process image"
+        guard environment.gemma.selectedModel.isDownloaded else {
+            print("🧠 Scanner: Model not downloaded, skipping auto-load")
             return
         }
-        if !environment.vision.isModelLoaded {
-            await environment.vision.loadModel()
+        
+        await LLMRequestQueue.shared.enqueue { [weak self] in
+            guard let self = self else { return }
+            
+            let preparedImage = ImageInputPreparer.preparedForModel(image)
+            guard let ciImage = ImageInputPreparer.ciImage(from: preparedImage) else {
+                await MainActor.run { self.environment.vision.status = "Failed to process image" }
+                return
+            }
+            
+            let isLoaded = await MainActor.run { self.environment.vision.isModelLoaded }
+            if !isLoaded {
+                await self.environment.vision.loadModel()
+            }
+            
+            let tool = await MainActor.run { self.selectedTool }
+            await self.environment.vision.scan(image: ciImage, definition: tool)
         }
-        await environment.vision.scan(image: ciImage, definition: selectedTool)
     }
     
     func addToBatch(_ result: ScanResult) {
-        scanResults.append(result)
-        environment.storage.save(result, to: selectedTool.toolID)
+        if !scanResults.contains(where: { $0.id == result.id }) {
+            scanResults.append(result)
+            environment.storage.save(result, to: selectedTool.toolID)
+        }
         capturedImage = nil
         environment.vision.lastResult = nil
         environment.vision.status = ""

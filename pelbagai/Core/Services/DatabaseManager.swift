@@ -13,13 +13,27 @@ struct ChatSession: Identifiable, Hashable, Codable, FetchableRecord, Persistabl
     }
 }
 
+struct ChatAttachment: Identifiable, Hashable, Codable {
+    let id: UUID
+    let filename: String
+    let fileType: String // e.g., "pdf", "text"
+    let localPath: String
+    let extractedText: String?
+}
+
 struct ChatMessage: Identifiable, Hashable, Codable, FetchableRecord, PersistableRecord {
     let id: UUID
     let sessionId: UUID
     let role: MessageRole
     let content: String
     let imageData: Data?
+    let attachmentsData: Data?
     let timestamp: Date
+    
+    var attachments: [ChatAttachment] {
+        guard let data = attachmentsData else { return [] }
+        return (try? JSONDecoder().decode([ChatAttachment].self, from: data)) ?? []
+    }
     
     enum MessageRole: String, Codable, DatabaseValueConvertible {
         case user
@@ -33,6 +47,7 @@ struct ChatMessage: Identifiable, Hashable, Codable, FetchableRecord, Persistabl
         static let role = Column(CodingKeys.role)
         static let content = Column(CodingKeys.content)
         static let imageData = Column(CodingKeys.imageData)
+        static let attachmentsData = Column(CodingKeys.attachmentsData)
         static let timestamp = Column(CodingKeys.timestamp)
     }
 }
@@ -95,6 +110,12 @@ class DatabaseManager {
             }
             try db.create(index: "agentMemory_kind_key", on: "agentMemory", columns: ["kind", "key"], unique: true)
             try db.create(index: "agentMemory_updatedAt", on: "agentMemory", columns: ["updatedAt"])
+        }
+        
+        migrator.registerMigration("v4_attachments_support") { db in
+            try db.alter(table: "chatMessage") { t in
+                t.add(column: "attachmentsData", .blob)
+            }
         }
         
         return migrator
@@ -163,8 +184,22 @@ class DatabaseManager {
     
     func deleteSession(id: UUID) {
         do {
+            // Find all attachments associated with this session before deleting
+            let attachments: [ChatAttachment] = try dbQueue.read { db in
+                try ChatMessage
+                    .filter(ChatMessage.Columns.sessionId == id)
+                    .filter(ChatMessage.Columns.attachmentsData != nil)
+                    .fetchAll(db)
+                    .flatMap { $0.attachments }
+            }
+            
             try dbQueue.write { db in
                 _ = try ChatSession.deleteOne(db, key: id)
+            }
+            
+            // Cleanup filesystem
+            for attachment in attachments {
+                deleteAttachmentFile(named: attachment.localPath)
             }
         } catch {
             print("Error deleting session: \(error)")
@@ -199,11 +234,37 @@ class DatabaseManager {
     
     func deleteMessage(id: UUID) {
         do {
+            let attachments = try dbQueue.read { db in
+                try ChatMessage.fetchOne(db, key: id)?.attachments ?? []
+            }
+            
             try dbQueue.write { db in
                 _ = try ChatMessage.deleteOne(db, key: id)
             }
+            
+            for attachment in attachments {
+                deleteAttachmentFile(named: attachment.localPath)
+            }
         } catch {
             print("Error deleting message: \(error)")
+        }
+    }
+    
+    private func deleteAttachmentFile(named filename: String) {
+        do {
+            let fileManager = FileManager.default
+            let documentsURL = try fileManager.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            // Use generic "Attachments" directory or stay with "PDFs" for now?
+            // User said treat pdf as attachment, so let's use an "Attachments" folder.
+            let attachmentsDirectory = documentsURL.appendingPathComponent("Attachments", isDirectory: true)
+            let fileURL = attachmentsDirectory.appendingPathComponent(filename)
+            
+            if fileManager.fileExists(atPath: fileURL.path) {
+                try fileManager.removeItem(at: fileURL)
+                print("🧠 Database: Deleted attachment file \(filename)")
+            }
+        } catch {
+            print("🧠 Database: Failed to delete attachment file \(filename): \(error)")
         }
     }
 

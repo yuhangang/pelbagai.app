@@ -45,11 +45,13 @@ final class AgentOrchestrator: ObservableObject {
             return AgentTurnResult(response: "I am still finishing the previous request. Please wait a moment.")
         }
 
+        print("🤖 [Agent] Starting text processing: \"\(prompt.prefix(30))...\"")
         isProcessing = true
         pendingToolCall = nil
         defer {
             isProcessing = false
             MLXModelManager.shared.clearCache()
+            print("🤖 [Agent] Finished text processing.")
         }
 
         let route = router.route(prompt: prompt)
@@ -137,7 +139,7 @@ final class AgentOrchestrator: ObservableObject {
             if let retryReason = retryReason(for: rawOutput, visibleOutput: cleaned, allowedToolNames: allowedToolNames),
                attempt < maxModelAttempts {
                 diagnostics.retryReason = retryReason
-                print("🤖 [Agent] Retrying turn because \(retryReason)")
+                print("🤖 [Agent] Attempt \(attempt) failed: \(retryReason). Retrying...")
                 MLXModelManager.shared.clearCache()
                 continue
             }
@@ -277,6 +279,8 @@ final class AgentOrchestrator: ObservableObject {
                 \(toolInstructions)
 
                 \(context)
+
+                When resolving relative dates like 'tomorrow', 'next week', or 'in 2 hours', use the 'Current device time' above to calculate the exact ISO8601 timestamp for tool arguments. Do not ask the user for the date if you can determine it yourself.
                 """
             ]
         ]
@@ -289,7 +293,7 @@ final class AgentOrchestrator: ObservableObject {
             case .user:
                 messages.append(["role": "user", "content": content])
             case .assistant:
-                messages.append(["role": "assistant", "content": content])
+                messages.append(["role": "model", "content": content])
             case .system:
                 continue
             }
@@ -305,9 +309,18 @@ final class AgentOrchestrator: ObservableObject {
         let rows = tools.map { tool -> String in
             let capability = plugins.capability(pluginID: tool.pluginID, capabilityID: tool.capabilityID)
             let schema = capability?.argumentSchema ?? [:]
-            let args = schema.isEmpty
-                ? "{}"
-                : "{\(schema.keys.sorted().map { "\"\($0)\":\"string\"" }.joined(separator: ","))}"
+            
+            let args: String
+            if schema.isEmpty {
+                args = "{}"
+            } else {
+                let schemaList = schema.keys.sorted().map { key in
+                    let desc = schema[key] ?? "string"
+                    return "\"\(key)\":\"\(desc)\""
+                }.joined(separator: ",")
+                args = "{\(schemaList)}"
+            }
+            
             let approval = capability?.requiresUserApproval == true ? " Requires user approval." : ""
             return "- \(tool.name): \(tool.description) Arguments: \(args).\(approval)"
         }
@@ -324,11 +337,17 @@ final class AgentOrchestrator: ObservableObject {
     }
 
     private func currentTimeContext() -> String {
+        let date = Date()
         let formatter = DateFormatter()
         formatter.dateStyle = .full
         formatter.timeStyle = .short // Removes seconds
         formatter.timeZone = .current
-        return "Current device time: \(formatter.string(from: Date()))"
+        
+        let isoFormatter = ISO8601DateFormatter()
+        isoFormatter.formatOptions = [.withInternetDateTime]
+        let iso = isoFormatter.string(from: date)
+        
+        return "Current device time: \(formatter.string(from: date)) (ISO8601: \(iso))"
     }
 
     private func normalizedArguments(_ arguments: [String: String], schema: [String: String]) -> [String: String] {

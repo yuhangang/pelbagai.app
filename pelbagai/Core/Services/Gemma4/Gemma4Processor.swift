@@ -6,11 +6,17 @@ import MLXVLM
 
 private enum Gemma4AudioProcessingError: LocalizedError {
     case multipleAudioInputs(Int)
+    case emptyRawPCM
+    case invalidRawPCMByteCount(Int)
 
     var errorDescription: String? {
         switch self {
         case .multipleAudioInputs(let count):
             return "当前版本一次只支持 1 段音频，收到 \(count) 段。"
+        case .emptyRawPCM:
+            return "没有录到可处理的音频。"
+        case .invalidRawPCMByteCount(let count):
+            return "录音数据格式不完整，字节数为 \(count)。"
         }
     }
 }
@@ -24,9 +30,11 @@ private struct Gemma4PreparedAudio {
 
 private struct Gemma4MessageGenerator: MessageGenerator {
     func generate(message: Chat.Message) -> MLXLMCommon.Message {
+        let role = message.role == .assistant ? "model" : message.role.rawValue
+        
         guard message.role == .user, (!message.images.isEmpty || !message.audio.isEmpty) else {
             var dict: [String: any Sendable] = [
-                "role": message.role.rawValue,
+                "role": role,
                 "content": message.content
             ]
             if let toolCalls = message.toolCalls { dict["tool_calls"] = toolCalls }
@@ -42,7 +50,7 @@ private struct Gemma4MessageGenerator: MessageGenerator {
         content += message.audio.map { _ in ["type": "audio"] as [String: any Sendable] }
 
         return [
-            "role": message.role.rawValue,
+            "role": role,
             "content": content
         ]
     }
@@ -76,6 +84,25 @@ public struct Gemma4Processor: UserInputProcessor {
         runtimeBudgetLock.unlock()
     }
 
+    private func extractAudioWaveform(from audio: UserInput.Audio) throws -> [Float] {
+        if case .data(let data, let format) = audio,
+           format == "audio/pcm-f32" {
+            guard !data.isEmpty else {
+                throw Gemma4AudioProcessingError.emptyRawPCM
+            }
+            guard data.count.isMultiple(of: MemoryLayout<Float>.stride) else {
+                throw Gemma4AudioProcessingError.invalidRawPCMByteCount(data.count)
+            }
+
+            return data.withUnsafeBytes { rawBuffer in
+                let floatBuffer = rawBuffer.bindMemory(to: Float.self)
+                return Array(floatBuffer)
+            }
+        }
+
+        return try MediaProcessing.extractAudioSamples(from: audio)
+    }
+
     private static func currentImageSoftTokenCap(
         config: Gemma4ProcessorConfiguration
     ) -> Int {
@@ -93,7 +120,7 @@ public struct Gemma4Processor: UserInputProcessor {
     }
 
     private func preprocessAudio(_ audio: UserInput.Audio) throws -> Gemma4PreparedAudio {
-        let waveform = try MediaProcessing.extractAudioSamples(from: audio)
+        let waveform = try extractAudioWaveform(from: audio)
         let sampleCount = waveform.count
         let sampleRate = 16_000
 
@@ -154,7 +181,12 @@ public struct Gemma4Processor: UserInputProcessor {
         case .text(let text):
             return text
         case .messages(let messages):
-            return messages.map { "\($0)" }.joined(separator: "\n")
+            // Fallback: join message contents with roles
+            return messages.map { dict in
+                let role = dict["role"] ?? "user"
+                let content = dict["content"] ?? ""
+                return "\(role): \(content)"
+            }.joined(separator: "\n")
         case .chat(let messages):
             return messages.map(\.content).joined(separator: "\n")
         }

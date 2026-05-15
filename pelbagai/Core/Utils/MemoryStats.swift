@@ -2,7 +2,7 @@ import Foundation
 import Darwin
 
 /// Memory usage utility for monitoring application footprint and jetsam limits.
-enum MemoryStats {
+nonisolated enum MemoryStats {
 
     /// (footprint MB, jetsam limit MB) via task_info.
     static func footprintMB() -> (Double, Double) {

@@ -126,10 +126,9 @@ struct EventKitPlugin: NativePlugin {
     }
 
     private func createEvent(store: EKEventStore, title: String, startStr: String, endStr: String) throws -> NativePluginResult {
-        let formatter = ISO8601DateFormatter()
-        guard let startDate = formatter.date(from: startStr),
-              let endDate = formatter.date(from: endStr) else {
-            return NativePluginResult(summary: "Invalid date format. Use ISO8601.")
+        guard let startDate = parseDate(startStr),
+              let endDate = parseDate(endStr) else {
+            return NativePluginResult(summary: "Invalid date format. Please use ISO8601 (e.g. 2024-05-14T10:00:00Z). Got: '\(startStr)', '\(endStr)'")
         }
         
         let event = EKEvent(eventStore: store)
@@ -139,23 +138,65 @@ struct EventKitPlugin: NativePlugin {
         event.calendar = store.defaultCalendarForNewEvents
         
         try store.save(event, span: .thisEvent)
-        return NativePluginResult(summary: "Successfully scheduled '\(title)' from \(startDate) to \(endDate).")
+        let df = DateFormatter()
+        df.dateStyle = .medium
+        df.timeStyle = .short
+        return NativePluginResult(summary: "Successfully scheduled '\(title)' from \(df.string(from: startDate)) to \(df.string(from: endDate)).")
     }
 
     private func listEvents(store: EKEventStore, startStr: String, endStr: String) throws -> NativePluginResult {
-        let formatter = ISO8601DateFormatter()
-        let startDate = formatter.date(from: startStr) ?? Date()
-        let endDate = formatter.date(from: endStr) ?? Date().addingTimeInterval(86400 * 7) // Default to 1 week
+        let startDate = parseDate(startStr) ?? Date()
+        let endDate = parseDate(endStr) ?? Date().addingTimeInterval(86400 * 7) // Default to 1 week
         
         let predicate = store.predicateForEvents(withStart: startDate, end: endDate, calendars: nil)
         let events = store.events(matching: predicate)
         
+        let df = DateFormatter()
+        df.dateStyle = .medium
+        df.timeStyle = .short
+        
         if events.isEmpty {
-            return NativePluginResult(summary: "No events found between \(startDate) and \(endDate).")
+            return NativePluginResult(summary: "No events found between \(df.string(from: startDate)) and \(df.string(from: endDate)).")
         }
         
-        let eventSummary = events.map { "\($0.title ?? "Untitled") (\($0.startDate!) - \($0.endDate!))" }.joined(separator: "\n")
+        let eventSummary = events.map { 
+            let s = $0.startDate != nil ? df.string(from: $0.startDate!) : "?"
+            let e = $0.endDate != nil ? df.string(from: $0.endDate!) : "?"
+            return "\($0.title ?? "Untitled") (\(s) - \(e))" 
+        }.joined(separator: "\n")
+        
         return NativePluginResult(summary: "Found \(events.count) events:\n\(eventSummary)")
+    }
+
+    private func parseDate(_ str: String) -> Date? {
+        let isoFormatter = ISO8601DateFormatter()
+        if let d = isoFormatter.date(from: str) { return d }
+        
+        // Try fractional seconds
+        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let d = isoFormatter.date(from: str) { return d }
+        
+        // Try date only
+        isoFormatter.formatOptions = [.withFullDate, .withDashSeparatorInDate]
+        if let d = isoFormatter.date(from: str) { return d }
+        
+        // Fallback DateFormatter for common formats
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        
+        let formats = [
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd HH:mm",
+            "MM/dd/yyyy HH:mm",
+            "yyyyMMdd'T'HHmmss'Z'"
+        ]
+        
+        for f in formats {
+            df.dateFormat = f
+            if let d = df.date(from: str) { return d }
+        }
+        
+        return nil
     }
 
     private func createReminder(store: EKEventStore, title: String) throws -> NativePluginResult {
