@@ -8,15 +8,28 @@ import UIKit
 import AppKit
 #endif
 
-/// A block-based tool page that renders capabilities as interactive GUI blocks.
-struct ToolPageView: View {
-    @StateObject private var viewModel: ToolPageViewModel
+enum WorkbenchTab: String, CaseIterable {
+    case workspace = "Workspace"
+    case data = "Data"
+    
+    var icon: String {
+        switch self {
+        case .workspace: return "sparkles.rectangle.stack.fill"
+        case .data:      return "tray.full.fill"
+        }
+    }
+}
+
+/// A consolidated workbench that uses tabs to organize tool interactions.
+struct WorkbenchView: View {
+    @StateObject private var viewModel: WorkbenchViewModel
     @EnvironmentObject private var env: AppEnvironment
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var isChatBarFocused: Bool
+    @State private var selectedTab: WorkbenchTab = .workspace
     
     init(toolID: String, env: AppEnvironment) {
-        _viewModel = StateObject(wrappedValue: ToolPageViewModel(toolID: toolID, environment: env))
+        _viewModel = StateObject(wrappedValue: WorkbenchViewModel(toolID: toolID, environment: env))
     }
     
     var body: some View {
@@ -24,7 +37,7 @@ struct ToolPageView: View {
             backgroundView
             
             VStack(spacing: 0) {
-                toolMainContent()
+                tabContent
                 toolPromptBar()
             }
         }
@@ -64,10 +77,121 @@ struct ToolPageView: View {
     }
     
     @ViewBuilder
-    private func toolMainContent() -> some View {
+    private var tabContent: some View {
+        VStack(spacing: 0) {
+            // Modern iOS Pill Tab Bar
+            HStack(spacing: 0) {
+                ForEach(WorkbenchTab.allCases, id: \.self) { tab in
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            selectedTab = tab
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: tab.icon)
+                                .font(.system(size: 13, weight: .semibold))
+                            Text(tab == .data ? "\(tab.rawValue) (\(viewModel.savedResults.count))" : tab.rawValue)
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 16)
+                        .background(
+                            ZStack {
+                                if selectedTab == tab {
+                                    Capsule()
+                                        .fill(viewModel.toolColor)
+                                        .matchedGeometryEffect(id: "tab_pill", in: tabNamespace)
+                                }
+                            }
+                        )
+                        .foregroundColor(selectedTab == tab ? .white : .secondary)
+                    }
+                }
+            }
+            .padding(4)
+            .background(Color.primary.opacity(0.05))
+            .clipShape(Capsule())
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+            
+            // Tab Switcher
+            ZStack {
+                switch selectedTab {
+                case .workspace:
+                    workspaceView
+                        .transition(.asymmetric(insertion: .move(edge: .leading).combined(with: .opacity),
+                                               removal: .move(edge: .leading).combined(with: .opacity)))
+                case .data:
+                    libraryView
+                        .transition(.asymmetric(insertion: .move(edge: .trailing).combined(with: .opacity),
+                                               removal: .move(edge: .trailing).combined(with: .opacity)))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+    
+    @Namespace private var tabNamespace
+    
+    @ViewBuilder
+    private var workspaceView: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                toolScrollContent()
+                VStack(spacing: 24) {
+                    toolHeader
+                    
+                    if viewModel.isLoadingModels {
+                        loadingView
+                            .padding(.horizontal)
+                    }
+                    
+                    // THE STAGE: Integrated Capture + Results
+                    VStack(spacing: 16) {
+                        HStack {
+                            Text("Active Stage")
+                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                .foregroundColor(.secondary)
+                            Spacer()
+                            if viewModel.lastResult != nil {
+                                Button {
+                                    withAnimation { viewModel.lastResult = nil }
+                                } label: {
+                                    Text("Clear")
+                                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                        .foregroundColor(viewModel.toolColor)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 8)
+                        
+                        if viewModel.lastResult == nil && !env.vision.isProcessing {
+                            emptyStagePlaceholder
+                        } else {
+                            ResultsBlock(
+                                tool: viewModel.tool,
+                                toolColor: viewModel.toolColor,
+                                savedResults: $viewModel.savedResults,
+                                env: env,
+                                editingResult: $viewModel.editingResult,
+                                showEditSheet: $viewModel.showEditSheet
+                            )
+                        }
+                    }
+                    .padding(.horizontal)
+                    
+                    htmlViewBlock()
+                        .padding(.horizontal)
+                    
+                    promptResponseList()
+                        .padding(.horizontal)
+                    
+                    processingIndicator()
+                        .padding(.horizontal)
+                    
+                    Color.clear.frame(height: 20).id("bottom")
+                }
+                .padding(.bottom, 40)
             }
             .onChange(of: viewModel.promptResponses.count) { _, _ in
                 withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
@@ -77,52 +201,72 @@ struct ToolPageView: View {
             }
         }
     }
-
+    
     @ViewBuilder
-    private func toolScrollContent() -> some View {
+    private var libraryView: some View {
+        WorkbenchLibraryView(viewModel: viewModel)
+    }
+    
+    private var emptyStagePlaceholder: some View {
         VStack(spacing: 16) {
-            toolSwitcher
-            toolHeader
-            
-            if viewModel.isLoadingModels {
-                loadingView
-                    .padding(.horizontal)
+            ZStack {
+                Circle()
+                    .fill(viewModel.toolColor.opacity(0.1))
+                    .frame(width: 80, height: 80)
+                Image(systemName: "viewfinder")
+                    .font(.system(size: 32))
+                    .foregroundColor(viewModel.toolColor.opacity(0.5))
             }
             
-            CapabilityGridView(
-                tool: viewModel.tool,
-                toolColor: viewModel.toolColor,
-                showCamera: $viewModel.showCamera,
-                selectedPhotoItem: $viewModel.selectedPhotoItem,
-                savedResults: $viewModel.savedResults,
-                showExportSheet: $viewModel.showExportSheet,
-                exportFileURL: $viewModel.exportFileURL,
-                env: env
-            )
-            .padding(.horizontal)
-            
-            htmlViewBlock()
-                .padding(.horizontal)
-            promptResponseList()
-                .padding(.horizontal)
-            
-            if viewModel.tool.capabilities.contains(.exportCSV) {
-                ResultsBlock(
-                    tool: viewModel.tool,
-                    toolColor: viewModel.toolColor,
-                    savedResults: $viewModel.savedResults,
-                    env: env,
-                    editingResult: $viewModel.editingResult,
-                    showEditSheet: $viewModel.showEditSheet
-                )
-                .padding(.horizontal)
+            VStack(spacing: 4) {
+                Text("Ready to Extract")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                Text("Use the camera or chat to start processing.")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.secondary)
             }
-            processingIndicator()
-                .padding(.horizontal)
             
-            Color.clear.frame(height: 20).id("bottom")
+            HStack(spacing: 16) {
+                quickCaptureButton(icon: "camera.fill", label: "Camera") {
+                    viewModel.showCamera = true
+                }
+                
+                quickCaptureButton(icon: "photo.fill", label: "Photos") {
+                    // Handled by PhotosPicker overlay or direct trigger if we refactor it
+                }
+                .overlay {
+                    PhotosPicker(selection: $viewModel.selectedPhotoItem, matching: .images) {
+                        Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+            }
+            .padding(.top, 8)
         }
-        .padding(.bottom, 100)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 40)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.primary.opacity(0.03))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.05), lineWidth: 1)
+                )
+        )
+    }
+    
+    private func quickCaptureButton(icon: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                Text(label)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+            }
+            .foregroundColor(viewModel.toolColor)
+            .frame(width: 80, height: 80)
+            .background(viewModel.toolColor.opacity(0.1))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
     }
 
     @ViewBuilder

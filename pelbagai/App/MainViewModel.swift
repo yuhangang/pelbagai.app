@@ -10,6 +10,7 @@ class MainViewModel: ObservableObject {
     @Published var homePath: [NavigationItem] = []
     @Published var chatPath: [NavigationItem] = []
     @Published var allDefinitions: [LocalToolDefinition] = []
+    @Published var totalResultCount: Int = 0
     
     let environment: AppEnvironment
     private var cancellables = Set<AnyCancellable>()
@@ -28,6 +29,11 @@ class MainViewModel: ObservableObject {
             .sink { [weak self] _ in
                 self?.loadSessions()
             }
+            .store(in: &cancellables)
+
+        environment.storage.$totalResultCount
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.totalResultCount = $0 }
             .store(in: &cancellables)
     }
     
@@ -99,9 +105,9 @@ class MainViewModel: ObservableObject {
             get: {
                 guard let item = self.selectedItem else { return .home }
                 switch item {
-                case .home, .scanner(_): return .home
-                case .chats, .chat(_): return .chats
-                case .storage: return .storage
+                case .home, .scanner: return .home
+                case .chats, .chat: return .chats
+                case .data: return .data
                 case .settings: return .settings
                 }
             },

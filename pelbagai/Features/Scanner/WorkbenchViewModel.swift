@@ -10,7 +10,7 @@ import AppKit
 #endif
 
 @MainActor
-class ToolPageViewModel: ObservableObject {
+class WorkbenchViewModel: ObservableObject {
     @Published var toolID: String
     private let environment: AppEnvironment
     
@@ -361,6 +361,16 @@ class ToolPageViewModel: ObservableObject {
         if let idx = savedResults.firstIndex(where: { $0.id == updated.id }) {
             savedResults[idx] = updated
         }
+    }
+    
+    func deleteResult(_ result: ScanResult) {
+        environment.storage.delete(resultID: result.id, from: toolID)
+        savedResults.removeAll { $0.id == result.id }
+    }
+    
+    func clearHistory() {
+        environment.storage.clearTool(toolID)
+        savedResults.removeAll()
     }
     
     func executeDynamicAction(_ actionDef: LocalToolDefinition.ActionDefinition, payload: [String: String]) {

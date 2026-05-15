@@ -157,7 +157,7 @@ struct HomeView: View {
     
     private var statsSection: some View {
         HStack(spacing: 16) {
-            Button(action: { selectedItem = .storage }) {
+            Button(action: { selectedItem = .data }) {
                 StatCard(title: "Scans", value: "\(viewModel.totalResultCount)", icon: "viewfinder", color: .orange)
             }
             .buttonStyle(.plain)
@@ -167,10 +167,7 @@ struct HomeView: View {
             }
             .buttonStyle(.plain)
             
-            Button(action: { selectedItem = .storage }) {
-                StatCard(title: "Tools", value: "\(viewModel.allDefinitions.count)", icon: "hammer.fill", color: .purple)
-            }
-            .buttonStyle(.plain)
+            StatCard(title: "Tools", value: "\(viewModel.allDefinitions.count)", icon: "hammer.fill", color: .purple)
         }
         .padding(.horizontal, 24)
     }
@@ -200,29 +197,26 @@ struct HomeView: View {
                 .font(.title3.weight(.bold))
                 .padding(.horizontal, 24)
             
-            Button(action: { selectedItem = .storage }) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Create Your First Tool")
-                            .font(.headline)
-                        Text("Define custom extraction schemas for your specific needs.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    Image(systemName: "plus.circle.fill")
-                        .font(.title2)
-                        .foregroundColor(.orange)
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Define Your Own Tools")
+                        .font(.headline)
+                    Text("Add custom extraction schemas via the developer console.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
                 }
-                .padding(20)
-                .background(Color.orange.opacity(0.1))
-                .cornerRadius(20)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .strokeBorder(Color.orange.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5]))
-                )
+                Spacer()
+                Image(systemName: "terminal.fill")
+                    .font(.title2)
+                    .foregroundColor(.orange)
             }
-            .buttonStyle(.plain)
+            .padding(20)
+            .background(Color.orange.opacity(0.1))
+            .cornerRadius(20)
+            .overlay(
+                RoundedRectangle(cornerRadius: 20)
+                    .strokeBorder(Color.orange.opacity(0.3), style: StrokeStyle(lineWidth: 1, dash: [5]))
+            )
             .padding(.horizontal, 24)
         }
     }

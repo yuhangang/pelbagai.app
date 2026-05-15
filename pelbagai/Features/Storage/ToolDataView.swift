@@ -113,7 +113,7 @@ struct ToolDataView: View {
         .navigationDestination(for: NavigationItem.self) { item in
             switch item {
             case .scanner(let toolID):
-                ToolPageView(toolID: toolID ?? "parcel_address", env: env)
+                WorkbenchView(toolID: toolID ?? "parcel_address", env: env)
             default:
                 EmptyView()
             }

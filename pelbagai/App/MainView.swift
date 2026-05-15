@@ -3,8 +3,8 @@ import SwiftUI
 enum NavigationItem: Hashable {
     case home
     case chats
+    case data
     case scanner(String? = nil)
-    case storage
     case settings
     case chat(UUID, initialPrompt: String? = nil)
 }
@@ -63,9 +63,11 @@ struct MainView: View {
                     .navigationDestination(for: NavigationItem.self) { item in
                         switch item {
                         case .scanner(let toolID):
-                            ToolPageView(toolID: toolID ?? "parcel_address", env: viewModel.environment)
+                            WorkbenchView(toolID: toolID ?? "parcel_address", env: viewModel.environment)
+                                .toolbar(.hidden, for: .tabBar)
                         case .chat(let id, let prompt):
                             ChatView(sessionId: id, initialPrompt: prompt, env: viewModel.environment)
+                                .toolbar(.hidden, for: .tabBar)
                         default:
                             EmptyView()
                         }
@@ -82,6 +84,7 @@ struct MainView: View {
                         switch item {
                         case .chat(let id, let prompt):
                             ChatView(sessionId: id, initialPrompt: prompt, env: viewModel.environment)
+                                .toolbar(.hidden, for: .tabBar)
                         default:
                             EmptyView()
                         }
@@ -96,9 +99,10 @@ struct MainView: View {
                 ToolDataView(env: viewModel.environment)
             }
             .tabItem {
-                Label("Tools", systemImage: "square.grid.2x2.fill")
+                Label("Data", systemImage: "tray.full.fill")
             }
-            .tag(NavigationItem.storage)
+            .badge(viewModel.totalResultCount)
+            .tag(NavigationItem.data)
             
             NavigationStack {
                 SettingsView(env: viewModel.environment)
@@ -119,6 +123,9 @@ struct MainView: View {
                     NavigationLink(value: NavigationItem.home) {
                         Label("Home", systemImage: "house.fill")
                     }
+                    NavigationLink(value: NavigationItem.data) {
+                        Label("Data Hub", systemImage: "tray.full.fill")
+                    }
                 }
                 
                 Section("Tools") {
@@ -126,9 +133,6 @@ struct MainView: View {
                         NavigationLink(value: NavigationItem.scanner(tool.toolID)) {
                             Label(tool.displayName, systemImage: tool.uiIcon)
                         }
-                    }
-                    NavigationLink(value: NavigationItem.storage) {
-                        Label("Tool Storage", systemImage: "externaldrive.fill")
                     }
                 }
                 
@@ -178,11 +182,11 @@ struct MainView: View {
                     HomeView(selectedItem: $viewModel.selectedItem, env: viewModel.environment)
                 case .chats:
                     ChatListView()
-                case .scanner(let toolID):
-                    ToolPageView(toolID: toolID ?? "parcel_address", env: viewModel.environment)
-                        .id(toolID)
-                case .storage:
+                case .data:
                     ToolDataView(env: viewModel.environment)
+                case .scanner(let toolID):
+                    WorkbenchView(toolID: toolID ?? "parcel_address", env: viewModel.environment)
+                        .id(toolID)
                 case .settings:
                     SettingsView(env: viewModel.environment)
                 case .chat(let id, let prompt):
