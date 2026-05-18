@@ -166,7 +166,14 @@
       "Use _action 'fetch_wiki' for new topic lookups, and 'wiki_research' ONLY when actual external research is required to find new facts."
     ],
     "prompt": "Evaluate the user request and act accordingly. Return ONLY valid JSON. Options: 1. New lookup -> {\"topic\": \"Name\", \"_action\": \"fetch_wiki\"}. 2. Perform deep research for missing info -> {\"topic\": \"Name\", \"question\": \"search query\", \"_action\": \"wiki_research\"}. 3. Answer directly from context -> {\"topic\": \"Name\", \"answer\": \"My response.\"}.",
-    "capabilities": ["scan_image"],
+    "capabilities": ["scan_image", "chatbot"],
+    "urlTemplate": "https://en.wikipedia.org/wiki/{topic}",
+    "suggestedPrompts": [
+      "Quantum Computing",
+      "Renaissance Art",
+      "Deep Ocean Exploration",
+      "Ancient Pompeii"
+    ],
     "inputSchema": {
       "prompt": "string",
       "image": "CIImage"

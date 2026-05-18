@@ -138,16 +138,23 @@ class WorkbenchViewModel: ObservableObject {
     }
     
     func processTextInput(_ text: String) async {
+        await MainActor.run { self.isProcessingText = true }
         await LLMRequestQueue.shared.enqueue { [weak self] in
             guard let self = self else { return }
             
-            let isLoaded = await MainActor.run { self.environment.vision.isModelLoaded }
-            if !isLoaded {
-                await self.environment.vision.loadModel()
-            }
-            
-            await MainActor.run { self.isProcessingText = true }
             defer { Task { @MainActor [weak self] in self?.isProcessingText = false } }
+            
+            let isLoaded = await MainActor.run { self.environment.gemma.isModelLoaded }
+            if !isLoaded {
+                let didLoad = await self.environment.gemma.loadModel()
+                guard didLoad else {
+                    await MainActor.run {
+                        let message = self.environment.gemma.lastErrorMessage ?? "Model failed to load"
+                        self.promptResponses.append(ToolPromptResponse(text: message, isUser: false))
+                    }
+                    return
+                }
+            }
             
             let history = await MainActor.run { Array(self.toolInteractionHistory().suffix(2)) }
             let override = await MainActor.run { self.toolStateOverride() }
@@ -212,7 +219,7 @@ class WorkbenchViewModel: ObservableObject {
             await MainActor.run {
                 self.environment.vision.lastResult = execution.scanResult
                 self.lastResult = execution.scanResult
-                self.appendToolResponses(execution.responses)
+                self.appendToolResponses(execution.responses, extractedTopic: execution.scanResult.richFields["topic"]?.flatString ?? execution.scanResult.richFields["subject"]?.flatString ?? execution.scanResult.richFields["query"]?.flatString)
             }
         }
     }
@@ -258,52 +265,93 @@ class WorkbenchViewModel: ObservableObject {
     }
     
     func processImage(_ image: UIImage, customPrompt: String? = nil) async {
+        await MainActor.run {
+            self.isProcessing = true
+            self.environment.vision.isProcessing = true
+            self.environment.vision.status = "Preparing..."
+        }
         await LLMRequestQueue.shared.enqueue { [weak self] in
             guard let self = self else { return }
             
-            let preparedImage = ImageInputPreparer.preparedForModel(image)
-            guard let ciImage = ImageInputPreparer.ciImage(from: preparedImage) else {
-                await MainActor.run { self.promptResponses.append(ToolPromptResponse(text: "Failed to process image", isUser: false)) }
-                return
+            defer {
+                Task { @MainActor [weak self] in
+                    self?.isProcessing = false
+                    self?.environment.vision.isProcessing = false
+                }
             }
             
-            let isLoaded = await MainActor.run { self.environment.vision.isModelLoaded }
+            let preparedImage = ImageInputPreparer.preparedForModel(image)
+            let isLoaded = await MainActor.run { self.environment.gemma.isModelLoaded }
             if !isLoaded {
-                await self.environment.vision.loadModel()
+                let didLoad = await self.environment.gemma.loadModel()
+                guard didLoad else {
+                    await MainActor.run {
+                        let message = self.environment.gemma.lastErrorMessage ?? "Model failed to load"
+                        self.environment.vision.status = message
+                        self.promptResponses.append(ToolPromptResponse(text: message, isUser: false))
+                    }
+                    return
+                }
             }
             
             let definition = await MainActor.run { self.tool }
-            
-            let result: ScanResult?
-            if let prompt = customPrompt {
-                result = await self.environment.vision.scan(image: ciImage, definition: definition, customPrompt: prompt)
-            } else {
-                result = await self.environment.vision.scan(image: ciImage, definition: definition)
+            let prompt = await MainActor.run {
+                self.environment.vision.compactImagePrompt(for: definition, customPrompt: customPrompt)
             }
 
-            if let result {
-                let execution = await self.environment.tools.execute(result: result, definition: definition)
+            await MainActor.run {
+                self.environment.vision.status = "Analyzing image..."
+                self.environment.vision.lastResult = nil
+            }
+
+            let output = await self.environment.gemma.generate(
+                prompt: prompt,
+                image: preparedImage,
+                history: [],
+                maxTokens: 256,
+                imageSoftTokenCap: 16,
+                retryEmptyImageOutput: false,
+                prefillStepSizeOverride: 32
+            )
+            let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
+
+            guard !trimmedOutput.isEmpty else {
                 await MainActor.run {
-                    self.environment.vision.lastResult = execution.scanResult
-                    self.lastResult = execution.scanResult
-                    self.appendToolResponses(execution.responses)
-                    
-                    if execution.scanResult.isValidated && execution.scanResult.hasData {
-                        self.environment.storage.save(execution.scanResult, to: self.toolID)
-                        self.loadStoredResults()
-                    }
+                    self.environment.vision.status = "Scan failed: empty model response"
+                    self.promptResponses.append(ToolPromptResponse(text: "I could not extract data from this image. Please try again.", isUser: false))
+                }
+                return
+            }
+
+            let result = await MainActor.run {
+                self.environment.vision.parseResponse(trimmedOutput, definition: definition)
+            }
+
+            let execution = await self.environment.tools.execute(result: result, definition: definition)
+            await MainActor.run {
+                self.environment.vision.lastResult = execution.scanResult
+                self.environment.vision.status = execution.scanResult.hasData ? "✅ Data extracted" : "⚠️ Limited results"
+                self.lastResult = execution.scanResult
+                if execution.responses.isEmpty {
+                    self.appendDefaultModelOutput(trimmedOutput, scanResult: execution.scanResult)
+                } else {
+                    self.appendToolResponses(execution.responses, extractedTopic: execution.scanResult.richFields["topic"]?.flatString ?? execution.scanResult.richFields["subject"]?.flatString ?? execution.scanResult.richFields["query"]?.flatString)
+                }
+                
+                if execution.scanResult.isValidated && execution.scanResult.hasData {
+                    self.environment.storage.save(execution.scanResult, to: self.toolID)
+                    self.loadStoredResults()
                 }
             }
             
             await MainActor.run {
-                if let res = result,
-                   let actionFieldValue = res.richFields["_action"],
+                if let actionFieldValue = result.richFields["_action"],
                    case .string(let actionName) = actionFieldValue,
                    self.tool.runtimeActions?[actionName] == nil,
                    let actionDef = self.tool.actions?[actionName],
                    actionDef.effect == .run_js,
                    let script = actionDef.script {
-                    if let data = try? JSONEncoder().encode(res),
+                    if let data = try? JSONEncoder().encode(execution.scanResult),
                        let dataString = String(data: data, encoding: .utf8) {
                         NotificationCenter.default.post(
                             name: NSNotification.Name("TriggerWebViewAction"),
@@ -316,7 +364,7 @@ class WorkbenchViewModel: ObservableObject {
         }
     }
 
-    private func appendToolResponses(_ responses: [ToolManager.Response]) {
+    private func appendToolResponses(_ responses: [ToolManager.Response], extractedTopic: String?) {
         for response in responses {
             promptResponses.append(
                 ToolPromptResponse(
@@ -324,7 +372,8 @@ class WorkbenchViewModel: ObservableObject {
                     isUser: false,
                     imageURL: response.imageURL,
                     isHiddenContext: response.isHiddenContext,
-                    contextData: response.contextData
+                    contextData: response.contextData,
+                    extractedTopic: extractedTopic
                 )
             )
         }
@@ -361,6 +410,11 @@ class WorkbenchViewModel: ObservableObject {
         if let idx = savedResults.firstIndex(where: { $0.id == updated.id }) {
             savedResults[idx] = updated
         }
+    }
+    
+    func saveResult(_ result: ScanResult) {
+        environment.storage.save(result, to: toolID)
+        loadStoredResults()
     }
     
     func deleteResult(_ result: ScanResult) {

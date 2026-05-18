@@ -394,7 +394,16 @@ class GemmaManager: ObservableObject {
     
     /// Generates a response from the transcribed user input, raw audio, or image.
     /// Streams tokens into `self.response` for real-time UI updates.
-    func generate(prompt: String, image: UIImage? = nil, audio: [Float]? = nil, history: [ChatMessage] = []) async -> String {
+    func generate(
+        prompt: String,
+        image: UIImage? = nil,
+        audio: [Float]? = nil,
+        history: [ChatMessage] = [],
+        maxTokens: Int? = nil,
+        imageSoftTokenCap: Int? = nil,
+        retryEmptyImageOutput: Bool = true,
+        prefillStepSizeOverride: Int? = nil
+    ) async -> String {
         guard !isGenerating else { 
             print("⚠️ [Gemma] Generation already in progress, skipping multimodal request.")
             return ""
@@ -406,6 +415,11 @@ class GemmaManager: ObservableObject {
         clarificationRequest = nil
         lastErrorMessage = nil
         status = "Thinking..."
+
+        if image != nil {
+            Gemma4Processor.setRuntimeImageSoftTokenCap(imageSoftTokenCap ?? 32)
+            MLXModelManager.shared.clearCache()
+        }
         
         defer {
             if image != nil {
@@ -442,9 +456,9 @@ class GemmaManager: ObservableObject {
             var iterationCount = 0
             var didRetryEmptyImageOutput = false
             var imageSoftTokenRetryCap: Int?
-            let maxTokens = maxGeneratedTokens
+            let maxTokens = maxTokens ?? maxGeneratedTokens
             let isCPU = MLXModelManager.shared.preferredBackend == .cpu
-            let prefillStepSize = isCPU ? 32 : 128
+            let prefillStepSize = prefillStepSizeOverride ?? (isCPU ? 32 : 128)
             let device: Device = isCPU ? .cpu : .gpu
             
             while executedToolCalls.count < maxToolIterations {
@@ -498,8 +512,21 @@ class GemmaManager: ObservableObject {
 
                         input = try await context.processor.prepare(input: userInput)
                     } else {
+                        let chatMessages = currentMessages.compactMap { dict -> Chat.Message? in
+                            guard let roleStr = dict["role"],
+                                  let content = dict["content"] else { return nil }
+                            let role: Chat.Message.Role
+                            if roleStr == "model" || roleStr == "assistant" {
+                                role = .assistant
+                            } else if roleStr == "system" {
+                                role = .system
+                            } else {
+                                role = .user
+                            }
+                            return Chat.Message(role: role, content: content)
+                        }
                         input = try await context.processor.prepare(
-                            input: .init(messages: currentMessages)
+                            input: .init(chat: chatMessages)
                         )
                     }
                     
@@ -557,6 +584,7 @@ class GemmaManager: ObservableObject {
                 if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                    image != nil,
                    audio == nil,
+                   retryEmptyImageOutput,
                    !didRetryEmptyImageOutput {
                     didRetryEmptyImageOutput = true
                     imageSoftTokenRetryCap = 64
@@ -967,8 +995,21 @@ class GemmaManager: ObservableObject {
         
         do {
             let rawOutput = try await container.perform { context in
+                let chatMessages = messages.compactMap { dict -> Chat.Message? in
+                    guard let roleStr = dict["role"],
+                          let content = dict["content"] else { return nil }
+                    let role: Chat.Message.Role
+                    if roleStr == "model" || roleStr == "assistant" {
+                        role = .assistant
+                    } else if roleStr == "system" {
+                        role = .system
+                    } else {
+                        role = .user
+                    }
+                    return Chat.Message(role: role, content: content)
+                }
                 let input = try await context.processor.prepare(
-                    input: .init(messages: messages)
+                    input: .init(chat: chatMessages)
                 )
                 let result = try MLXLMCommon.generate(
                     input: input,

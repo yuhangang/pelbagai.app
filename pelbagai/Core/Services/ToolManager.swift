@@ -28,14 +28,18 @@ final class ToolManager: ObservableObject {
             return ExecutionResult(scanResult: updated, responses: [])
         }
 
+        print("🛠 [ToolManager] Executing action '\(actionName)' on tool '\(definition.displayName)'")
+
         do {
             let response = try await executeRuntimeAction(
                 runtimeAction,
                 actionName: actionName,
                 result: updated
             )
+            print("🛠 [ToolManager] Action '\(actionName)' completed successfully. Output summary: \(response.text.prefix(150))...")
             return ExecutionResult(scanResult: updated, responses: [response])
         } catch {
+            print("⚠️ [ToolManager] Action '\(actionName)' failed: \(error.localizedDescription)")
             let topic = resolvedTopic(for: runtimeAction, from: updated)
             let message: String
             if let topic, !topic.isEmpty {
@@ -144,8 +148,16 @@ final class ToolManager: ObservableObject {
         result: ScanResult
     ) async throws -> Response {
         let url = try resolvedURL(for: request, runtimeAction: runtimeAction, result: result)
-        let (data, response) = try await URLSession.shared.data(from: url)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+        print("🛠 [ToolManager] Fetching URL: \(url.absoluteString)")
+        var urlRequest = URLRequest(url: url)
+        urlRequest.setValue("PelbagaiApp/1.0 (contact@pelbagai.app; User-Agent policy)", forHTTPHeaderField: "User-Agent")
+        let (data, responseObj) = try await URLSession.shared.data(for: urlRequest)
+        
+        if let http = responseObj as? HTTPURLResponse {
+            print("🛠 [ToolManager] Received HTTP response code: \(http.statusCode) (\(data.count) bytes)")
+        }
+        
+        guard let http = responseObj as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw ToolRuntimeError.requestFailed
         }
 

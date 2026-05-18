@@ -33,40 +33,48 @@ struct ChatView: View {
         ZStack {
             spatialBackground
             
-            if viewModel.isLoadingModels {
-                modelLoadingOverlay
-                    .zIndex(1)
-                    .onAppear {
-                        withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
-                            isRotating = true
-                        }
-                    }
-            } else if !viewModel.isModelLoaded && !env.gemma.selectedModel.isDownloaded {
-                downloadPromptOverlay
-                    .zIndex(1)
-            } else {
-                VStack(spacing: 0) {
-                    chatScrollView
-                    
-                    VStack(spacing: 12) {
-                        ChatInputView(
-                            textInput: $viewModel.textInput,
-                            inputMode: $viewModel.inputMode,
-                            isRecording: viewModel.isRecording,
-                            isGenerating: viewModel.isGenerating,
-                            isLoadingModels: viewModel.isLoadingModels,
-                            isModelLoaded: viewModel.isModelLoaded,
-                            userDefinitionsCount: viewModel.userDefinitionsCount,
-                            pendingImage: $viewModel.pendingImage,
-                            onMicTap: viewModel.handleMicTap,
-                            onCameraTap: { viewModel.showCamera = true },
-                            onFileTap: { showFilePicker = true },
-                            onSend: viewModel.sendTypedMessage
-                        )
-                    }
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial)
+            VStack(spacing: 0) {
+                chatScrollView
+                
+                VStack(spacing: 12) {
+                    ChatInputView(
+                        textInput: $viewModel.textInput,
+                        inputMode: $viewModel.inputMode,
+                        isRecording: viewModel.isRecording,
+                        isGenerating: viewModel.isGenerating,
+                        isLoadingModels: viewModel.isLoadingModels,
+                        isModelLoaded: viewModel.isModelLoaded,
+                        userDefinitionsCount: viewModel.userDefinitionsCount,
+                        pendingImage: $viewModel.pendingImage,
+                        onMicTap: viewModel.handleMicTap,
+                        onCameraTap: { viewModel.showCamera = true },
+                        onFileTap: { showFilePicker = true },
+                        onSend: viewModel.sendTypedMessage
+                    )
                 }
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial)
+            }
+            
+            if viewModel.isLoadingModels {
+                ZStack {
+                    Color.black.opacity(0.15)
+                        .ignoresSafeArea()
+                    modelLoadingOverlay
+                }
+                .zIndex(1)
+                .onAppear {
+                    withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
+                        isRotating = true
+                    }
+                }
+            } else if !viewModel.isModelLoaded && !env.gemma.selectedModel.isDownloaded {
+                ZStack {
+                    Color.black.opacity(0.15)
+                        .ignoresSafeArea()
+                    downloadPromptOverlay
+                }
+                .zIndex(1)
             }
             
             if let request = viewModel.clarificationRequest {
@@ -386,25 +394,7 @@ struct ChatView: View {
     private var inlineStreamingView: some View {
         HStack {
             VStack(alignment: .leading, spacing: 6) {
-                if !viewModel.status.isEmpty {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .scaleEffect(0.8)
-                        Text(viewModel.status)
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundColor(.cyan)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 24, style: .continuous)
-                            .fill(Color.primary.opacity(0.05))
-                            .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.ultraThinMaterial))
-                            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
-                    )
-                } else if viewModel.response.isEmpty {
-                    TypingIndicator()
-                } else {
+                if !viewModel.response.isEmpty {
                     MarkdownContentView(text: viewModel.response)
                         .foregroundColor(.primary)
                         .padding(.horizontal, 16)
@@ -424,6 +414,24 @@ struct ChatView: View {
                                         )
                                 )
                         )
+                } else if !viewModel.status.isEmpty {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text(viewModel.status)
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(.cyan)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 24, style: .continuous)
+                            .fill(Color.primary.opacity(0.05))
+                            .background(RoundedRectangle(cornerRadius: 24, style: .continuous).fill(.ultraThinMaterial))
+                            .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).stroke(Color.primary.opacity(0.1), lineWidth: 0.5))
+                    )
+                } else {
+                    TypingIndicator()
                 }
             }
             Spacer(minLength: 40)

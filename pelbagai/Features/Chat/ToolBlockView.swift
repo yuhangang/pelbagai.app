@@ -80,6 +80,8 @@ struct CapabilityGridView: View {
             EmptyView()
         case .vectorSearch:
             EmptyView()
+        case .chatbot:
+            EmptyView()
         }
     }
 }

@@ -80,7 +80,7 @@ class VisionManager: ObservableObject {
         // Resize to 1024px to control the transient peak during prefill.
         let resizedImage = self.resize(image: image, maxDimension: 1024) ?? image
         
-        let prompt = customPrompt ?? prompt(for: definition)
+        let prompt = prompt(for: definition, customPrompt: customPrompt)
         
         print("📷 Starting scan (Headroom: \(headroom)MB, Image: \(Int(resizedImage.extent.width))x\(Int(resizedImage.extent.height)))")
         
@@ -301,7 +301,7 @@ class VisionManager: ObservableObject {
         )
     }
     
-    private func prompt(for definition: LocalToolDefinition) -> String {
+    func prompt(for definition: LocalToolDefinition, customPrompt: String? = nil) -> String {
         var finalPrompt = definition.prompt ?? "Extract structured data from this image. Return ONLY valid JSON."
         
         // Inject briefing as high-level context
@@ -344,8 +344,86 @@ class VisionManager: ObservableObject {
                 """
             }
         }
+
+        if let customPrompt,
+           !customPrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            finalPrompt += """
+            
+            
+            USER FOCUS:
+            \(customPrompt)
+            
+            Use USER FOCUS only to prioritize what to inspect in the image. Keep the runtime output contract above and return ONLY one valid JSON object.
+            """
+        }
         
         return finalPrompt
+    }
+
+    func compactImagePrompt(for definition: LocalToolDefinition, customPrompt: String? = nil) -> String {
+        let visibleSchema = definition.outputSchema.isEmpty
+            ? "Choose concise user-facing fields that are clearly visible in the image."
+            : definition.outputSchema
+                .sorted { $0.key < $1.key }
+                .map { "- \($0.key): \($0.value)" }
+                .joined(separator: "\n")
+
+        var metaKeys = [
+            "_isValid: boolean",
+            "_validationNotes: short quality note",
+            "_confidence: number 0.0 to 1.0"
+        ]
+
+        if definition.capabilities.contains(.persistentState) {
+            metaKeys.append("_state: string key-value memory only when supported by the image")
+        }
+
+        if let runtimeActions = definition.runtimeActions, !runtimeActions.isEmpty {
+            let actionNames = runtimeActions.keys.sorted().joined(separator: ", ")
+            metaKeys.append("_action: one of \(actionNames), only when the image supports a runtime lookup")
+        }
+
+        if let chainTo = definition.chainTo, !chainTo.isEmpty {
+            metaKeys.append("_followUp: optional object; tool must be one of \(chainTo.joined(separator: ", "))")
+        }
+
+        var prompt = """
+        Analyze the image for the "\(definition.displayName)" tool.
+        Return ONLY one valid JSON object. No markdown, XML, prose, or code fences.
+
+        Visible output fields:
+        \(visibleSchema)
+
+        Runtime meta keys:
+        \(metaKeys.map { "- \($0)" }.joined(separator: "\n"))
+        """
+
+        if let briefing = definition.briefing?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !briefing.isEmpty {
+            prompt += "\n\nBriefing: \(briefing)"
+        } else if !definition.description.isEmpty {
+            prompt += "\n\nTask: \(definition.description)"
+        }
+
+        if let rules = definition.rules, !rules.isEmpty {
+            prompt += "\n\nRules:\n" + rules.prefix(4).map { "- \($0)" }.joined(separator: "\n")
+        }
+
+        if definition.capabilities.contains(.persistentState) {
+            let state = ToolStorage.shared.latestState(for: definition.toolID)
+            if !state.isEmpty,
+               let data = try? JSONSerialization.data(withJSONObject: state, options: [.sortedKeys]),
+               let stateJSON = String(data: data, encoding: .utf8) {
+                prompt += "\n\nCurrent state for _state only:\n\(stateJSON)"
+            }
+        }
+
+        if let customPrompt = customPrompt?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !customPrompt.isEmpty {
+            prompt += "\n\nUser focus: \(customPrompt)"
+        }
+
+        return prompt
     }
     
     private func runtimeProtocol(for definition: LocalToolDefinition) -> String {

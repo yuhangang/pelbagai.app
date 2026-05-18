@@ -27,9 +27,9 @@ struct PelbagaiApp: App {
                 .environmentObject(mainViewModel)
                 .onChange(of: scenePhase) { phase in
                     switch phase {
-                    case .background, .inactive:
+                    case .background:
                         environment.mlx.handleBackground()
-                    case .active:
+                    case .active, .inactive:
                         environment.mlx.handleForeground()
                     @unknown default:
                         break

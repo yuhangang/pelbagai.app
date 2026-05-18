@@ -167,7 +167,10 @@ struct HomeView: View {
             }
             .buttonStyle(.plain)
             
-            StatCard(title: "Tools", value: "\(viewModel.allDefinitions.count)", icon: "hammer.fill", color: .purple)
+            Button(action: { selectedItem = .data }) {
+                StatCard(title: "Tools", value: "\(viewModel.allDefinitions.count)", icon: "hammer.fill", color: .purple)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 24)
     }

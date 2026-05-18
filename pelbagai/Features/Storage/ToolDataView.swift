@@ -55,21 +55,16 @@ struct ToolDataView: View {
             }
             
             VStack(spacing: 0) {
-                if viewModel.toolCatalog.isEmpty && viewModel.userDefinitions.isEmpty {
+                if viewModel.allDefinitions.isEmpty {
                     emptyState
                 } else {
                     ScrollView {
-                        VStack(spacing: 16) {
+                        VStack(spacing: 20) {
                             headerSection
-                            toolDefinitionsSection
                             
-                            if !viewModel.toolCatalog.isEmpty {
-                                statsCard
-                            }
+                            statsCard
                             
-                            ForEach(viewModel.toolCatalog) { tool in
-                                toolCard(tool)
-                            }
+                            toolsCatalogSection
                             
                             if viewModel.toolCatalog.count > 1 {
                                 clearAllButton
@@ -81,7 +76,7 @@ struct ToolDataView: View {
                 }
             }
         }
-        .navigationTitle("Tool Storage")
+        .navigationTitle("Tool Hub")
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif
@@ -117,9 +112,6 @@ struct ToolDataView: View {
             default:
                 EmptyView()
             }
-        }
-        .sheet(item: $selectedToolID) { toolID in
-            ToolDetailSheet(toolID: toolID, env: env)
         }
         .sheet(isPresented: $showExportSheet) {
 #if os(iOS)
@@ -227,135 +219,6 @@ struct ToolDataView: View {
         .padding(.top, 8)
     }
     
-    private var toolDefinitionsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label("Local Tools", systemImage: "wrench.and.screwdriver.fill")
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundColor(.primary)
-                
-                Spacer()
-                
-                Text("\(viewModel.allDefinitions.count)")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.primary.opacity(0.06))
-                    .clipShape(Capsule())
-            }
-            
-            VStack(spacing: 12) {
-                ForEach(viewModel.allDefinitions) { definition in
-                    NavigationLink(value: NavigationItem.scanner(definition.toolID)) {
-                        toolDefinitionRow(definition)
-                    }
-                    .buttonStyle(PlainButtonStyle())
-                }
-            }
-            
-            if !viewModel.userDefinitions.isEmpty {
-                Button(role: .destructive) {
-                    viewModel.resetUserDefinitions()
-                } label: {
-                    Label("Reset Custom Tools", systemImage: "arrow.counterclockwise")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                }
-                .buttonStyle(.bordered)
-            }
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-                )
-        )
-    }
-    
-    private func toolDefinitionRow(_ definition: LocalToolDefinition) -> some View {
-        let isCustom = viewModel.isUserDefinition(definition.toolID)
-        let color = definition.uiColor
-        let iconName = definition.uiIcon
-        
-        return HStack(alignment: .center, spacing: 12) {
-            RoundedRectangle(cornerRadius: 2)
-                .fill(color)
-                .frame(width: 4, height: 36)
-            
-            ZStack {
-                Circle()
-                    .fill(color.opacity(0.12))
-                    .frame(width: 36, height: 36)
-                
-                Image(systemName: iconName)
-                    .font(.system(size: 16))
-                    .foregroundColor(color)
-            }
-            
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(definition.displayName)
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                        .foregroundColor(.primary)
-                    
-                    Text(isCustom ? "Custom" : "Bundled")
-                        .font(.system(size: 8, weight: .bold, design: .rounded))
-                        .foregroundColor(isCustom ? .cyan : .secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background((isCustom ? Color.cyan : Color.secondary).opacity(0.12))
-                        .clipShape(Capsule())
-                }
-                
-                Text(definition.description)
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .lineLimit(1)
-                
-                Text(definition.toolID)
-                    .font(.system(size: 9, weight: .medium, design: .monospaced))
-                    .foregroundColor(.secondary.opacity(0.7))
-            }
-            
-            Spacer()
-            
-            if isCustom {
-                Button(role: .destructive) {
-                    deleteDefinitionID = definition.toolID
-                    showDeleteDefinitionConfirm = true
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(.red.opacity(0.8))
-                        .frame(width: 28, height: 28)
-                        .background(Color.red.opacity(0.08))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.borderless)
-            } else {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundColor(.secondary.opacity(0.4))
-                    .padding(.trailing, 4)
-            }
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.primary.opacity(0.03))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(Color.primary.opacity(0.02), lineWidth: 0.5)
-        )
-    }
-    
     private func statItem(value: String, label: String, icon: String, color: Color) -> some View {
         VStack(spacing: 8) {
             ZStack {
@@ -389,115 +252,166 @@ struct ToolDataView: View {
         )
     }
     
-    private func toolCard(_ tool: ToolInfo) -> some View {
-        let accentColor = templateColor(for: tool.id)
-        
-        return VStack(spacing: 12) {
-            Button(action: {
-                selectedToolID = tool.id
-            }) {
-                HStack(spacing: 14) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(accentColor.opacity(0.12))
-                            .frame(width: 48, height: 48)
-                        
-                        Image(systemName: templateIcon(for: tool.id))
-                            .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(accentColor)
-                    }
-                    
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(tool.displayName)
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundColor(.primary)
-                        
-                        HStack(spacing: 6) {
-                            Image(systemName: "doc.text.fill")
-                                .font(.system(size: 9))
-                            Text("\(tool.resultCount)")
-                            Text("•")
-                            Image(systemName: "folder.fill")
-                                .font(.system(size: 9))
-                            Text(tool.formattedSize)
-                            Text("•")
-                            Image(systemName: "calendar")
-                                .font(.system(size: 9))
-                            Text(tool.formattedDate)
-                        }
-                        .font(.system(size: 10, weight: .medium, design: .rounded))
-                        .foregroundColor(.secondary)
-                    }
-                    
-                    Spacer()
-                    
-                    ZStack {
-                        Circle()
-                            .fill(Color.primary.opacity(0.04))
-                            .frame(width: 26, height: 26)
-                        
-                        Image(systemName: "eye.fill")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(PlainButtonStyle())
-            
-            Divider().opacity(0.4)
-            
-            HStack(spacing: 12) {
-                Button(action: {
-                    let results = viewModel.loadAllResults(for: tool.id)
-                    if let url = exporter.exportToCSV(results: results) {
-                        exportFileURL = url
-                        showExportSheet = true
-                    }
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text("Export CSV")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                    }
-                    .foregroundColor(.blue)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(Color.blue.opacity(0.08))
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(PlainButtonStyle())
+    private var toolsCatalogSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("Tool Hub & Catalog", systemImage: "wrench.and.screwdriver.fill")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
                 
-                Button(action: {
-                    clearTargetID = tool.id
-                    showClearConfirm = true
-                }) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "trash")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text("Clear Data")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                    }
-                    .foregroundColor(.red)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .background(Color.red.opacity(0.08))
+                Spacer()
+                
+                Text("\(viewModel.allDefinitions.count) Available")
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.primary.opacity(0.06))
                     .clipShape(Capsule())
+            }
+            .padding(.horizontal, 4)
+            
+            VStack(spacing: 12) {
+                ForEach(viewModel.allDefinitions) { definition in
+                    let storedInfo = viewModel.toolCatalog.first(where: { $0.id == definition.toolID })
+                    let isCustom = viewModel.isUserDefinition(definition.toolID)
+                    let color = definition.uiColor
+                    let iconName = definition.uiIcon
+                    
+                    NavigationLink(value: NavigationItem.scanner(definition.toolID)) {
+                        HStack(alignment: .center, spacing: 14) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(color)
+                                .frame(width: 4, height: 44)
+                            
+                            ZStack {
+                                Circle()
+                                    .fill(color.opacity(0.12))
+                                    .frame(width: 44, height: 44)
+                                
+                                Image(systemName: iconName)
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundColor(color)
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 6) {
+                                    Text(definition.displayName)
+                                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                                        .foregroundColor(.primary)
+                                    
+                                    Text(isCustom ? "Custom" : "Bundled")
+                                        .font(.system(size: 8, weight: .bold, design: .rounded))
+                                        .foregroundColor(isCustom ? .cyan : .secondary)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background((isCustom ? Color.cyan : Color.secondary).opacity(0.12))
+                                        .clipShape(Capsule())
+                                }
+                                
+                                Text(definition.description)
+                                    .font(.system(size: 11, design: .rounded))
+                                    .foregroundColor(.secondary)
+                                    .lineLimit(2)
+                                    .multilineTextAlignment(.leading)
+                                
+                                Text(definition.toolID)
+                                    .font(.system(size: 9, weight: .medium, design: .monospaced))
+                                    .foregroundColor(.secondary.opacity(0.6))
+                            }
+                            
+                            Spacer()
+                            
+                            VStack(alignment: .trailing, spacing: 6) {
+                                if let info = storedInfo, info.resultCount > 0 {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: "doc.text.fill")
+                                            .font(.system(size: 9))
+                                        Text("\(info.resultCount)")
+                                        Text("•")
+                                        Text(info.formattedSize)
+                                    }
+                                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                                    .foregroundColor(color)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(color.opacity(0.12))
+                                    .clipShape(Capsule())
+                                } else {
+                                    Text("Ready")
+                                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                        .foregroundColor(.secondary)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.primary.opacity(0.04))
+                                        .clipShape(Capsule())
+                                }
+                                
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(.secondary.opacity(0.3))
+                            }
+                        }
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(.ultraThinMaterial)
+                                .shadow(color: color.opacity(0.03), radius: 6, x: 0, y: 3)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.primary.opacity(0.06), lineWidth: 0.5)
+                        )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .contextMenu {
+                        if let info = storedInfo, info.resultCount > 0 {
+                            Button {
+                                let results = viewModel.loadAllResults(for: info.id)
+                                if let url = exporter.exportToCSV(results: results) {
+                                    exportFileURL = url
+                                    showExportSheet = true
+                                }
+                            } label: {
+                                Label("Export CSV", systemImage: "square.and.arrow.up")
+                            }
+                            
+                            Button(role: .destructive) {
+                                clearTargetID = info.id
+                                showClearConfirm = true
+                            } label: {
+                                Label("Clear Stored Data", systemImage: "trash")
+                            }
+                        }
+                        
+                        if isCustom {
+                            Divider()
+                            
+                            Button(role: .destructive) {
+                                deleteDefinitionID = definition.toolID
+                                showDeleteDefinitionConfirm = true
+                            } label: {
+                                Label("Delete Custom Tool", systemImage: "trash.slash")
+                            }
+                        }
+                    }
                 }
-                .buttonStyle(PlainButtonStyle())
+            }
+            
+            if !viewModel.userDefinitions.isEmpty {
+                Button(role: .destructive) {
+                    viewModel.resetUserDefinitions()
+                } label: {
+                    Label("Reset Custom Tools", systemImage: "arrow.counterclockwise")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.bordered)
+                .padding(.top, 4)
             }
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(.ultraThinMaterial)
-                .shadow(color: accentColor.opacity(0.05), radius: 8, x: 0, y: 4)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .stroke(accentColor.opacity(0.12), lineWidth: 1.0)
-                )
-        )
     }
     
     private var emptyState: some View {
@@ -533,218 +447,6 @@ struct ToolDataView: View {
         }
         .buttonStyle(PlainButtonStyle())
         .padding(.top, 12)
-    }
-    
-    private func templateColor(for toolID: String) -> Color {
-        env.registry.definition(for: toolID)?.uiColor ?? .indigo
-    }
-    
-    private func templateIcon(for toolID: String) -> String {
-        env.registry.definition(for: toolID)?.uiIcon ?? "doc.text.fill"
-    }
-}
-
-struct ToolDetailSheet: View {
-    let toolID: String
-    private let env: AppEnvironment
-    @State private var results: [ScanResult] = []
-    @State private var editingResult: ScanResult?
-    @State private var showEditSheet = false
-    @StateObject private var exporter = ExcelExporter()
-    @State private var showExportSheet = false
-    @State private var exportFileURL: URL?
-    @Environment(\.dismiss) private var dismiss
-    
-    init(toolID: String, env: AppEnvironment) {
-        self.toolID = toolID
-        self.env = env
-    }
-    
-    var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    ForEach(results) { result in
-                        resultRow(result)
-                            .swipeActions(edge: .trailing) {
-                                Button(role: .destructive) {
-                                    env.storage.delete(resultID: result.id, from: toolID)
-                                    results.removeAll { $0.id == result.id }
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
-                                }
-                                
-                                Button {
-                                    editingResult = result
-                                    showEditSheet = true
-                                } label: {
-                                    Label("Edit", systemImage: "pencil")
-                                }
-                                .tint(.blue)
-                            }
-                    }
-                } header: {
-                    Text("\(results.count) results")
-                } footer: {
-                    if !results.isEmpty {
-                        Text("Swipe left on a row to edit or delete.")
-                    }
-                }
-            }
-            .navigationTitle(toolID.replacingOccurrences(of: "_", with: " ").capitalized)
-    #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-#endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    if !results.isEmpty {
-                        Button {
-                            if let url = exporter.exportToCSV(results: results) {
-                                exportFileURL = url
-                                showExportSheet = true
-                            }
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                        }
-                    }
-                }
-            }
-            .onAppear {
-                results = env.storage.loadAll(from: toolID)
-            }
-            .sheet(isPresented: $showEditSheet) {
-                if let result = editingResult {
-                    ScanResultEditSheet(result: result) { updated in
-                        env.storage.update(updated, in: toolID)
-                        if let idx = results.firstIndex(where: { $0.id == updated.id }) {
-                            results[idx] = updated
-                        }
-                        showEditSheet = false
-                    }
-                }
-            }
-            .sheet(isPresented: $showExportSheet) {
-#if os(iOS)
-                if let url = exportFileURL {
-                    ShareSheet(activityItems: [url])
-                }
-#else
-                VStack {
-                    Text("Exported to: \(exportFileURL?.path ?? "")")
-                        .padding()
-                    Button("Show in Finder") {
-                        if let url = exportFileURL {
-                            NSWorkspace.shared.activateFileViewerSelecting([url])
-                        }
-                        showExportSheet = false
-                    }
-                    .padding()
-                    Button("Close") { showExportSheet = false }
-                        .padding()
-                }
-                .frame(width: 400, height: 200)
-#endif
-            }
-        }
-    }
-    
-    private func resultRow(_ result: ScanResult) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Image(systemName: result.isValidated ? "checkmark.circle.fill" : "exclamationmark.circle")
-                    .foregroundColor(result.isValidated ? .green : .orange)
-                    .font(.system(size: 12))
-                
-                Text(result.primaryValue)
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .lineLimit(1)
-                
-                Spacer()
-                
-                Text(result.timestamp, style: .relative)
-                    .font(.system(size: 11, design: .rounded))
-                    .foregroundColor(.secondary)
-            }
-            
-            let topKeys = result.sortedKeys.prefix(3)
-            ForEach(Array(topKeys), id: \.self) { key in
-                if let fv = result.richFields[key], !fv.isEmpty {
-                    if fv.isList {
-                        HStack(alignment: .top, spacing: 4) {
-                            Text(key + ":")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.secondary)
-                            VStack(alignment: .leading, spacing: 2) {
-                                ForEach(fv.asList.prefix(3), id: \.self) { item in
-                                    HStack(spacing: 3) {
-                                        Circle().fill(Color.secondary).frame(width: 3, height: 3)
-                                        Text(item)
-                                            .font(.system(size: 11))
-                                            .foregroundColor(.primary.opacity(0.7))
-                                            .lineLimit(1)
-                                    }
-                                }
-                                if fv.asList.count > 3 {
-                                    Text("+\(fv.asList.count - 3) more")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-                        }
-                    } else {
-                        HStack(spacing: 4) {
-                            Text(key + ":")
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(.secondary)
-                            Text(fv.flatString)
-                                .font(.system(size: 11))
-                                .foregroundColor(.primary.opacity(0.7))
-                                .lineLimit(1)
-                        }
-                    }
-                }
-            }
-            
-            if result.richFields.count > 3 {
-                Text("+\(result.richFields.count - 3) more fields")
-                    .font(.system(size: 10, design: .rounded))
-                    .foregroundColor(.secondary)
-            }
-            
-            HStack(spacing: 6) {
-                if result.scriptNotes != nil {
-                    Label("Notes", systemImage: "scroll")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.cyan)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.cyan.opacity(0.12))
-                        .clipShape(Capsule())
-                }
-                if !result.actions.isEmpty {
-                    Label("\(result.actions.count) actions", systemImage: "bolt.badge.checkmark")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.indigo)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.indigo.opacity(0.12))
-                        .clipShape(Capsule())
-                }
-                if let state = result.state, !state.isEmpty {
-                    Label("\(state.count) state vars", systemImage: "memorychip")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundColor(.purple)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.purple.opacity(0.12))
-                        .clipShape(Capsule())
-                }
-            }
-        }
-        .padding(.vertical, 4)
     }
 }
 

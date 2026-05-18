@@ -25,6 +25,7 @@ struct WorkbenchView: View {
     @StateObject private var viewModel: WorkbenchViewModel
     @EnvironmentObject private var env: AppEnvironment
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.openURL) private var openURL
     @FocusState private var isChatBarFocused: Bool
     @State private var selectedTab: WorkbenchTab = .workspace
     
@@ -136,6 +137,15 @@ struct WorkbenchView: View {
     
     @ViewBuilder
     private var workspaceView: some View {
+        if viewModel.tool.capabilities.contains(.chatbot) {
+            chatbotView
+        } else {
+            standardWorkspaceView
+        }
+    }
+    
+    @ViewBuilder
+    private var standardWorkspaceView: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(spacing: 24) {
@@ -198,6 +208,100 @@ struct WorkbenchView: View {
             }
             .onChange(of: viewModel.lastResult?.id) { _, _ in
                 withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var chatbotView: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 20) {
+                    toolHeader
+                    
+                    if viewModel.isLoadingModels {
+                        loadingView
+                            .padding(.horizontal)
+                    }
+                    
+                    let visible = viewModel.promptResponses.filter { !$0.isHiddenContext }
+                    if visible.isEmpty {
+                        chatbotOnboardingView
+                    } else {
+                        ForEach(visible) { response in
+                            ChatbotResponseBlock(
+                                response: response,
+                                toolColor: viewModel.toolColor,
+                                viewModel: viewModel
+                            )
+                            .padding(.horizontal)
+                        }
+                    }
+                    
+                    processingIndicator()
+                        .padding(.horizontal)
+                    
+                    Color.clear.frame(height: 20).id("bottom")
+                }
+                .padding(.bottom, 40)
+            }
+            .onChange(of: viewModel.promptResponses.count) { _, _ in
+                withAnimation { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var chatbotOnboardingView: some View {
+        VStack(spacing: 24) {
+            Image(systemName: viewModel.tool.icon ?? "globe.americas.fill")
+                .font(.system(size: 48))
+                .foregroundColor(viewModel.toolColor.opacity(0.8))
+                .padding(.top, 30)
+            
+            VStack(spacing: 6) {
+                Text("Search \(viewModel.tool.displayName)")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
+                Text(viewModel.tool.description)
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+            
+            if let suggestions = viewModel.tool.suggestedPrompts, !suggestions.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Suggested searches:")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .padding(.leading, 8)
+                    
+                    ForEach(suggestions, id: \.self) { suggestion in
+                        Button {
+                            viewModel.textInput = suggestion
+                            viewModel.sendTextInput()
+                        } label: {
+                            HStack {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(viewModel.toolColor)
+                                Text(suggestion)
+                                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                                Spacer()
+                                Image(systemName: "arrow.up.left")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.secondary)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 12)
+                            .background(Color.primary.opacity(0.04))
+                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 24)
             }
         }
     }
@@ -343,11 +447,11 @@ struct WorkbenchView: View {
 
     @ViewBuilder
     private func processingIndicator() -> some View {
-        if viewModel.isProcessingText {
+        if viewModel.isProcessingText || viewModel.isProcessing {
             HStack(spacing: 8) {
                 ProgressView()
                     .progressViewStyle(CircularProgressViewStyle(tint: viewModel.toolColor))
-                Text("Processing…")
+                Text(viewModel.isProcessing ? (!env.vision.status.isEmpty ? env.vision.status : "Analyzing image…") : "Processing…")
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                     .foregroundColor(.secondary)
             }
@@ -558,7 +662,7 @@ struct WorkbenchView: View {
 
             HStack(spacing: 12) {
                 HStack {
-                    TextField("Ask about this tool or paste data…", text: $viewModel.textInput)
+                    TextField(viewModel.tool.capabilities.contains(.chatbot) ? "Search topic or ask a question…" : "Ask about this tool or paste data…", text: $viewModel.textInput)
                         .font(.system(size: 15, design: .rounded))
                         .foregroundColor(.primary)
                         .padding(.horizontal, 14)
@@ -635,5 +739,201 @@ struct ToolPromptResponse: Identifiable {
     var imageURL: String? = nil
     var isHiddenContext: Bool = false
     var contextData: [String: String]? = nil
+    var extractedTopic: String? = nil
     let timestamp = Date()
+}
+
+// MARK: - Chatbot Response Block
+
+struct ChatbotResponseBlock: View {
+    let response: ToolPromptResponse
+    let toolColor: Color
+    @ObservedObject var viewModel: WorkbenchViewModel
+    @Environment(\.openURL) private var openURL
+    
+    var body: some View {
+        HStack {
+            if response.isUser {
+                Spacer(minLength: 40)
+                VStack(alignment: .trailing, spacing: 8) {
+                    if let image = response.image {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxHeight: 180)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .shadow(color: Color.black.opacity(0.1), radius: 5, y: 2)
+                    }
+                    
+                    if !response.text.isEmpty {
+                        Text(response.text)
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .fill(toolColor)
+                            )
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    if let topic = response.extractedTopic, !topic.isEmpty {
+                        // Premium Glassmorphic Card for Chatbot Article Result!
+                        VStack(alignment: .leading, spacing: 0) {
+                            if let imageURL = response.imageURL, let url = URL(string: imageURL), !imageURL.isEmpty {
+                                AsyncImage(url: url) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image.resizable()
+                                            .aspectRatio(contentMode: .fill)
+                                            .frame(height: 180)
+                                            .clipped()
+                                    case .failure:
+                                        EmptyView()
+                                    case .empty:
+                                        ProgressView()
+                                            .frame(height: 180)
+                                            .frame(maxWidth: .infinity)
+                                            .background(Color.primary.opacity(0.03))
+                                    @unknown default:
+                                        EmptyView()
+                                    }
+                                }
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Image(systemName: viewModel.tool.icon ?? "globe.americas.fill")
+                                        .foregroundColor(toolColor)
+                                        .font(.system(size: 12))
+                                    Text("\(viewModel.tool.displayName) Article")
+                                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                                        .foregroundColor(.secondary)
+                                }
+                                
+                                Text(topic)
+                                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                                    .foregroundColor(.primary)
+                                
+                                Text(response.text)
+                                    .font(.system(size: 13, design: .rounded))
+                                    .foregroundColor(.primary.opacity(0.8))
+                                    .lineSpacing(4)
+                                
+                                Divider()
+                                    .padding(.vertical, 4)
+                                
+                                HStack(spacing: 12) {
+                                    if viewModel.tool.urlTemplate != nil {
+                                        // Open Article Button
+                                        Button {
+                                            openArticleLink(for: topic)
+                                        } label: {
+                                            HStack(spacing: 6) {
+                                                Image(systemName: "safari")
+                                                Text("Open Link")
+                                            }
+                                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                            .foregroundColor(toolColor)
+                                            .padding(.vertical, 8)
+                                            .padding(.horizontal, 12)
+                                            .background(toolColor.opacity(0.1))
+                                            .clipShape(Capsule())
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    
+                                    // Bookmark Button
+                                    let bookmarked = isBookmarked(topic: topic)
+                                    Button {
+                                        toggleBookmark(topic: topic, summary: response.text, imageURL: response.imageURL)
+                                    } label: {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: bookmarked ? "star.fill" : "star")
+                                            Text(bookmarked ? "Bookmarked" : "Bookmark")
+                                        }
+                                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                        .foregroundColor(bookmarked ? .orange : .secondary)
+                                        .padding(.vertical, 8)
+                                        .padding(.horizontal, 12)
+                                        .background(bookmarked ? Color.orange.opacity(0.1) : Color.primary.opacity(0.05))
+                                        .clipShape(Capsule())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                            .padding(16)
+                        }
+                        .background(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .fill(.ultraThinMaterial)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.05), radius: 10, y: 5)
+                    } else {
+                        // Standard Assistant text response
+                        Text(response.text)
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(.primary)
+                            .lineSpacing(4)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                    .fill(Color.primary.opacity(0.06))
+                            )
+                    }
+                }
+                Spacer(minLength: 40)
+            }
+        }
+    }
+    
+    private func openArticleLink(for topic: String) {
+        if let template = viewModel.tool.urlTemplate {
+            let escaped = topic.trimmingCharacters(in: .whitespacesAndNewlines)
+                .replacingOccurrences(of: " ", with: "_")
+                .addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? topic
+            let urlString = template.replacingOccurrences(of: "{topic}", with: escaped)
+            if let url = URL(string: urlString) {
+                openURL(url)
+            }
+        }
+    }
+    
+    private func isBookmarked(topic: String) -> Bool {
+        viewModel.savedResults.contains { result in
+            (result.richFields["topic"]?.flatString ?? result.primaryValue).lowercased() == topic.lowercased()
+        }
+    }
+    
+    private func toggleBookmark(topic: String, summary: String, imageURL: String?) {
+        if isBookmarked(topic: topic) {
+            if let result = viewModel.savedResults.first(where: { ($0.richFields["topic"]?.flatString ?? $0.primaryValue).lowercased() == topic.lowercased() }) {
+                viewModel.deleteResult(result)
+            }
+        } else {
+            let escaped = topic.replacingOccurrences(of: " ", with: "_").addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? topic
+            let targetURLString = viewModel.tool.urlTemplate?.replacingOccurrences(of: "{topic}", with: escaped) ?? ""
+            
+            let result = ScanResult(
+                toolID: viewModel.toolID,
+                template: viewModel.toolID,
+                richFields: [
+                    "topic": .string(topic),
+                    "summary": .string(summary),
+                    "imageURL": .string(imageURL ?? ""),
+                    "url": .string(targetURLString)
+                ],
+                isValidated: true,
+                timestamp: Date()
+            )
+            viewModel.saveResult(result)
+        }
+    }
 }

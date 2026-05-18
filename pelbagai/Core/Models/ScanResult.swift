@@ -229,6 +229,7 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         case persistentState = "persistent_state"
         case htmlView = "html_view"
         case vectorSearch = "vector_search"
+        case chatbot = "chatbot"
     }
     
     struct ActionDefinition: Codable, Equatable {
@@ -308,6 +309,8 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
     var runtimeActions: [String: RuntimeActionDefinition]?
     var icon: String?
     var color: String?
+    var urlTemplate: String?
+    var suggestedPrompts: [String]?
     
     var id: String { toolID }
     
@@ -332,6 +335,8 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         case runtimeActions
         case icon
         case color
+        case urlTemplate
+        case suggestedPrompts
     }
     
     init(from decoder: Decoder) throws {
@@ -360,6 +365,8 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         runtimeActions = try container.decodeIfPresent([String: RuntimeActionDefinition].self, forKey: .runtimeActions)
         icon = try container.decodeIfPresent(String.self, forKey: .icon)
         color = try container.decodeIfPresent(String.self, forKey: .color)
+        urlTemplate = try container.decodeIfPresent(String.self, forKey: .urlTemplate)
+        suggestedPrompts = try container.decodeIfPresent([String].self, forKey: .suggestedPrompts)
     }
     
     init(
@@ -382,7 +389,9 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         stateBridges: [StateBridgeDefinition]? = nil,
         runtimeActions: [String: RuntimeActionDefinition]? = nil,
         icon: String? = nil,
-        color: String? = nil
+        color: String? = nil,
+        urlTemplate: String? = nil,
+        suggestedPrompts: [String]? = nil
     ) {
         self.schemaVersion = schemaVersion
         self.toolID = toolID
@@ -404,6 +413,8 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         self.runtimeActions = runtimeActions
         self.icon = icon
         self.color = color
+        self.urlTemplate = urlTemplate
+        self.suggestedPrompts = suggestedPrompts
     }
     
     static func normalizedToolID(_ rawValue: String) -> String {
@@ -483,6 +494,7 @@ extension LocalToolDefinition.Capability {
         case .persistentState: return "Persistent State"
         case .htmlView:        return "Custom View"
         case .vectorSearch:    return "Vector Search"
+        case .chatbot:         return "Chatbot"
         }
     }
     
@@ -494,6 +506,7 @@ extension LocalToolDefinition.Capability {
         case .persistentState: return "memorychip"
         case .htmlView:        return "globe"
         case .vectorSearch:    return "magnifyingglass.circle.fill"
+        case .chatbot:         return "bubble.left.and.bubble.right.fill"
         }
     }
     
@@ -505,6 +518,7 @@ extension LocalToolDefinition.Capability {
         case .persistentState: return .purple
         case .htmlView:        return .cyan
         case .vectorSearch:    return .indigo
+        case .chatbot:         return .green
         }
     }
     
@@ -516,6 +530,7 @@ extension LocalToolDefinition.Capability {
         case .persistentState: return "Cross-scan memory and state variables"
         case .htmlView:        return "Interactive custom UI via embedded web view"
         case .vectorSearch:    return "Semantic search through local vectorized knowledge base"
+        case .chatbot:         return "Interactive chatbot interface for topic search and queries"
         }
     }
 }
