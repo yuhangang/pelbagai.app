@@ -69,6 +69,11 @@ final class AgentRouter {
             names.append("read_local_file")
         }
 
+        if containsAny(["receipt", "expense", "spending", "report", "chart", "summarize receipts", "summarise receipts"], in: normalized),
+           containsAny(["report", "chart", "summary", "summarize", "summarise", "analyse", "analyze", "total", "spending", "expense"], in: normalized) {
+            names.append("run_tool_workflow")
+        }
+
         // --- Meta: List Tools / Help ---
         if containsAny(["what can you do", "help", "tools", "capabilities", "list", "available"], in: normalized) {
             // Include a representative set of tools so the agent can describe its powers

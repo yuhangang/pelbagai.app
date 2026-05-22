@@ -231,6 +231,47 @@ class DatabaseManager {
             return []
         }
     }
+    func updateMessageAttachments(id: UUID, attachmentsData: Data?) {
+        do {
+            try dbQueue.write { db in
+                if var message = try ChatMessage.fetchOne(db, key: id) {
+                    let updated = ChatMessage(
+                        id: message.id,
+                        sessionId: message.sessionId,
+                        role: message.role,
+                        content: message.content,
+                        imageData: message.imageData,
+                        attachmentsData: attachmentsData,
+                        timestamp: message.timestamp
+                    )
+                    try updated.update(db)
+                }
+            }
+        } catch {
+            print("Error updating message attachments: \(error)")
+        }
+    }
+    
+    func updateMessageImageData(id: UUID, imageData: Data?) {
+        do {
+            try dbQueue.write { db in
+                if var message = try ChatMessage.fetchOne(db, key: id) {
+                    let updated = ChatMessage(
+                        id: message.id,
+                        sessionId: message.sessionId,
+                        role: message.role,
+                        content: message.content,
+                        imageData: imageData,
+                        attachmentsData: message.attachmentsData,
+                        timestamp: message.timestamp
+                    )
+                    try updated.update(db)
+                }
+            }
+        } catch {
+            print("Error updating message imageData: \(error)")
+        }
+    }
     
     func deleteMessage(id: UUID) {
         do {

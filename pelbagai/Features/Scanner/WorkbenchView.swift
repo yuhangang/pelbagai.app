@@ -1,6 +1,9 @@
 import SwiftUI
 import PhotosUI
 import CoreImage
+#if canImport(Charts)
+import Charts
+#endif
 
 #if canImport(UIKit)
 import UIKit
@@ -189,6 +192,9 @@ struct WorkbenchView: View {
                         }
                     }
                     .padding(.horizontal)
+
+                    workflowReportBlock()
+                        .padding(.horizontal)
                     
                     htmlViewBlock()
                         .padding(.horizontal)
@@ -370,6 +376,160 @@ struct WorkbenchView: View {
             .frame(width: 80, height: 80)
             .background(viewModel.toolColor.opacity(0.1))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    @ViewBuilder
+    private func workflowReportBlock() -> some View {
+        if viewModel.tool.workflow != nil || viewModel.workflowArtifact != nil || viewModel.allDefinitions.contains(where: { definition in
+            definition.workflow?.triggerSourceToolIDs.contains(viewModel.toolID) == true
+        }) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 10) {
+                    Image(systemName: "chart.xyaxis.line")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(viewModel.toolColor)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Workflow")
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                        Text(viewModel.workflowStatus.isEmpty ? "Configured tool workflow" : viewModel.workflowStatus)
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button {
+                        Task {
+                            await viewModel.runConfiguredWorkflow(reason: "Manual workflow run")
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            if viewModel.isWorkflowRunning {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Image(systemName: "chart.bar.doc.horizontal")
+                                    .font(.system(size: 12, weight: .semibold))
+                            }
+                            Text("Report")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                        }
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(viewModel.toolColor)
+                        .clipShape(Capsule())
+                    }
+                    .disabled(viewModel.isWorkflowRunning)
+                }
+
+                if let artifact = viewModel.workflowArtifact {
+                    artifactSummary(artifact)
+                    artifactCharts(artifact)
+                } else if let run = viewModel.activeWorkflowRun {
+                    workflowEventList(run)
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(.ultraThinMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+        }
+    }
+
+    private func artifactSummary(_ artifact: WorkflowArtifact) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(artifact.summary)
+                .font(.system(size: 13, design: .rounded))
+                .foregroundColor(.primary.opacity(0.82))
+                .lineSpacing(3)
+
+            HStack(spacing: 10) {
+                ForEach(artifact.metrics.prefix(3)) { metric in
+                    metricPill(title: metric.title, value: metric.value)
+                }
+            }
+        }
+    }
+
+    private func metricPill(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .foregroundColor(.secondary)
+            Text(value)
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundColor(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.primary.opacity(0.05))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func artifactCharts(_ artifact: WorkflowArtifact) -> some View {
+#if canImport(Charts)
+        VStack(spacing: 14) {
+            ForEach(artifact.charts) { chart in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(chart.title)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundColor(.secondary)
+                    Chart(chart.points) { point in
+                        switch chart.kind {
+                        case .bar:
+                            BarMark(
+                                x: .value("Value", point.value),
+                                y: .value("Label", point.label)
+                            )
+                            .foregroundStyle(viewModel.toolColor.gradient)
+                        case .line:
+                            LineMark(
+                                x: .value("Label", point.label),
+                                y: .value("Value", point.value)
+                            )
+                            .foregroundStyle(viewModel.toolColor)
+                            PointMark(
+                                x: .value("Label", point.label),
+                                y: .value("Value", point.value)
+                            )
+                            .foregroundStyle(viewModel.toolColor)
+                        }
+                    }
+                    .frame(height: chart.kind == .bar ? 180 : 160)
+                }
+            }
+        }
+#else
+        EmptyView()
+#endif
+    }
+
+    private func workflowEventList(_ run: WorkflowRun) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(run.events.suffix(4)) { event in
+                HStack(alignment: .top, spacing: 8) {
+                    Circle()
+                        .fill(viewModel.toolColor.opacity(0.8))
+                        .frame(width: 6, height: 6)
+                        .padding(.top, 5)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(event.title)
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        Text(event.detail)
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                }
+            }
         }
     }
 
@@ -669,10 +829,16 @@ struct WorkbenchView: View {
                         .padding(.vertical, 10)
                         .focused($isChatBarFocused) // Note: Renamed from isInputFocused for consistency
                         .disabled(viewModel.isLoadingModels)
-                        .onSubmit { viewModel.sendTextInput() }
+                        .onSubmit {
+                            isChatBarFocused = false
+                            viewModel.sendTextInput()
+                        }
                     
                     if !viewModel.textInput.isEmpty || viewModel.pendingImage != nil {
-                        Button(action: viewModel.sendTextInput) {
+                        Button(action: {
+                            isChatBarFocused = false
+                            viewModel.sendTextInput()
+                        }) {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundColor(colorScheme == .dark ? .black : .white)

@@ -130,6 +130,7 @@ final class NativePluginRegistry: ObservableObject {
         register(MediaPlugin())
         register(StoragePlugin())
         register(KnowledgeBasePlugin())
+        register(WorkflowPlugin())
     }
 }
 

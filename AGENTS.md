@@ -25,14 +25,17 @@ Current ownership boundaries:
   through views.
 - `DatabaseManager.swift`: GRDB-backed chat session/message persistence.
 - `ToolStorage.swift`: JSON file storage for scan/tool results.
+- `Core/Services/Workflow/`: Swift-owned workflow planning, run persistence,
+  and execution for multi-tool flows such as receipt scan to expense report.
 - `NativePluginRegistry.swift` and `Core/Services/Plugins/`: Swift-owned native
   system integrations. Plugins are compile-time capabilities, not dynamic JSON
   tools, and may expose controlled interfaces to chat tools or tool runtime
   actions.
 - `ScanResult.swift`: scan templates, local tool definitions, prompt contracts,
   field data types, declarative tool actions, and CSV-facing model compatibility.
-- `ScriptEngine.swift`: legacy no-op compatibility shim. Model-produced scripts
-  must not execute; route new behavior through Swift-owned `ToolAction` handling.
+- `ScriptEngine.swift`: legacy no-op compatibility shim. Ad-hoc scan output
+  scripts must not execute; workflow transforms must go through the constrained
+  Swift-owned `ToolScriptRuntime`.
 - `ExcelExporter.swift`: export formatting and file generation.
 
 ## Architecture Rules
@@ -63,6 +66,13 @@ Treat local tool output as declarative data. Do not grant model-produced content
 network, filesystem, database, script, or UI powers. Keep web loading as an
 explicit caller-owned `ToolAction.openURL` handoff with URL validation and user
 approval.
+
+Treat multi-tool workflows as Swift-owned orchestration. The local model may
+propose or request a workflow, but `WorkflowExecutor` must own persistence,
+handle cancellation/failure, and call only existing managers, storage, plugins,
+or the constrained `ToolScriptRuntime`. JSON-defined transform scripts may parse
+already-provided workflow input and return a typed artifact; they must not
+receive direct filesystem, network, database, UI, or native framework access.
 
 Keep Swift-native plugins separate from dynamic local tools. Plugins may own
 Contacts, EventKit, HealthKit, clipboard, media, or storage integration only as

@@ -1,14 +1,13 @@
 [core]
+	bare = true
 	repositoryformatversion = 0
 	filemode = true
-	bare = true
 	ignorecase = true
 	precomposeunicode = true
-	symlinks = true
-	fsmonitor = false
-	longpaths = true
 [remote "origin"]
 	url = https://github.com/SharpAI/mlx-swift-lm
-	tagOpt = --no-tags
 	fetch = +refs/*:refs/*
 	mirror = true
+[branch "main"]
+	remote = origin
+	merge = refs/heads/main

@@ -5,42 +5,35 @@ import Combine
 /// Injected into the view hierarchy via `.environmentObject()`.
 @MainActor
 class AppEnvironment: ObservableObject {
-    let gemma: GemmaManager
-    let mlx: MLXModelManager
-    let speech: SpeechService
-    let registry: ToolRegistry
-    let database: DatabaseManager
-    let storage: ToolStorage
-    let tools: ToolManager
-    let plugins: NativePluginRegistry
-    let agent: AgentOrchestrator
-    let vision: VisionManager
-    let whisper: WhisperManager
+    lazy var gemma: GemmaManager = .shared
+    lazy var mlx: MLXModelManager = {
+        mlxHasInitialized = true
+        return .shared
+    }()
+    lazy var speech: SpeechService = .shared
+    lazy var registry: ToolRegistry = .shared
+    lazy var skills: SkillRegistry = .shared
+    lazy var database: DatabaseManager = .shared
+    lazy var storage: ToolStorage = .shared
+    lazy var tools: ToolManager = .shared
+    lazy var plugins: NativePluginRegistry = .shared
+    lazy var agent: AgentOrchestrator = .shared
+    lazy var vision: VisionManager = .shared
+    lazy var whisper: WhisperManager = .shared
+    lazy var workflows: WorkflowExecutor = .shared
     
-    init(
-        gemma: GemmaManager = .shared,
-        mlx: MLXModelManager = .shared,
-        speech: SpeechService = .shared,
-        registry: ToolRegistry = .shared,
-        database: DatabaseManager = .shared,
-        storage: ToolStorage = .shared,
-        tools: ToolManager = .shared,
-        plugins: NativePluginRegistry = .shared,
-        agent: AgentOrchestrator = .shared,
-        vision: VisionManager = .shared,
-        whisper: WhisperManager = .shared
-    ) {
-        self.gemma = gemma
-        self.mlx = mlx
-        self.speech = speech
-        self.registry = registry
-        self.database = database
-        self.storage = storage
-        self.tools = tools
-        self.plugins = plugins
-        self.agent = agent
-        self.vision = vision
-        self.whisper = whisper
+    private var mlxHasInitialized = false
+    
+    init() {}
+    
+    func handleBackground() {
+        guard mlxHasInitialized else { return }
+        mlx.handleBackground()
+    }
+    
+    func handleForeground() {
+        guard mlxHasInitialized else { return }
+        mlx.handleForeground()
     }
     
     func unloadAllModels() async {

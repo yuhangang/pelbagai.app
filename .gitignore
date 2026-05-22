@@ -103,3 +103,5 @@ DerivedData/
 .env
 .vscode/
 packages/
+
+.build_temp/

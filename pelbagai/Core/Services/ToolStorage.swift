@@ -37,6 +37,7 @@ class ToolStorage: ObservableObject {
     private let fileExtension = "json"
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private var catalogRefreshTask: Task<Void, Never>?
     
     private init() {
         encoder = JSONEncoder()
@@ -47,7 +48,10 @@ class ToolStorage: ObservableObject {
         decoder.dateDecodingStrategy = .iso8601
         
         createStorageDirectoryIfNeeded()
-        refreshCatalog()
+        Task { [weak self] in
+            await Task.yield()
+            self?.refreshCatalog()
+        }
     }
     
     // MARK: - Storage Directory
@@ -194,29 +198,19 @@ class ToolStorage: ObservableObject {
     
     /// Refreshes the catalog of all tools with stored data.
     func refreshCatalog() {
-        let fm = FileManager.default
-        var catalog: [ToolInfo] = []
+        let directory = storageDirectory
+        let fileExtension = fileExtension
         
-        if let files = try? fm.contentsOfDirectory(at: storageDirectory, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]) {
-            for file in files where file.pathExtension == fileExtension {
-                let toolID = file.deletingPathExtension().lastPathComponent
-                let results = loadAll(from: toolID)
-                let attributes = try? fm.attributesOfItem(atPath: file.path)
-                let fileSize = attributes?[.size] as? Int64 ?? 0
-                let lastModified = attributes?[.modificationDate] as? Date ?? Date()
-                
-                catalog.append(ToolInfo(
-                    id: toolID,
-                    displayName: toolID.replacingOccurrences(of: "_", with: " ").capitalized,
-                    resultCount: results.count,
-                    fileSize: fileSize,
-                    lastModified: lastModified
-                ))
-            }
+        catalogRefreshTask?.cancel()
+        catalogRefreshTask = Task { [weak self] in
+            let catalog = await Task.detached(priority: .utility) {
+                Self.buildCatalog(storageDirectory: directory, fileExtension: fileExtension)
+            }.value
+            
+            guard !Task.isCancelled else { return }
+            self?.toolCatalog = catalog.sorted { $0.lastModified > $1.lastModified }
+            self?.totalResultCount = catalog.reduce(0) { $0 + $1.resultCount }
         }
-        
-        toolCatalog = catalog.sorted { $0.lastModified > $1.lastModified }
-        totalResultCount = catalog.reduce(0) { $0 + $1.resultCount }
     }
     
     /// Returns total storage size across all tools.
@@ -239,12 +233,49 @@ class ToolStorage: ObservableObject {
             print("🗂️ Failed to write to \(toolID): \(error)")
         }
     }
+    
+    nonisolated private static func buildCatalog(storageDirectory: URL, fileExtension: String) -> [ToolInfo] {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(
+            at: storageDirectory,
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey]
+        ) else {
+            return []
+        }
+        
+        return files.compactMap { file in
+            guard file.pathExtension == fileExtension else { return nil }
+            
+            let toolID = file.deletingPathExtension().lastPathComponent
+            let attributes = try? fm.attributesOfItem(atPath: file.path)
+            let fileSize = attributes?[.size] as? Int64 ?? 0
+            let lastModified = attributes?[.modificationDate] as? Date ?? Date()
+            
+            return ToolInfo(
+                id: toolID,
+                displayName: toolID.replacingOccurrences(of: "_", with: " ").capitalized,
+                resultCount: resultCount(in: file),
+                fileSize: fileSize,
+                lastModified: lastModified
+            )
+        }
+    }
+    
+    nonisolated private static func resultCount(in file: URL) -> Int {
+        do {
+            let data = try Data(contentsOf: file)
+            return try (JSONSerialization.jsonObject(with: data) as? [Any])?.count ?? 0
+        } catch {
+            print("🗂️ Failed to count stored results in \(file.lastPathComponent): \(error)")
+            return 0
+        }
+    }
 }
 
 // MARK: - Tool Info
 
 /// Metadata about a tool's stored data for catalog display.
-struct ToolInfo: Identifiable {
+struct ToolInfo: Identifiable, Sendable {
     let id: String
     let displayName: String
     let resultCount: Int

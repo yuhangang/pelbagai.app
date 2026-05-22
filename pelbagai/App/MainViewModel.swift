@@ -46,7 +46,7 @@ class MainViewModel: ObservableObject {
         if !sessions.contains(where: { $0.id == newSession.id }) {
             sessions.insert(newSession, at: 0)
         }
-        selectedItem = .chat(newSession.id, initialPrompt: nil)
+        selectedItem = .chat(newSession.id, initialPrompt: nil, initialSkill: nil)
     }
     
     func createNewChat(with prompt: String) {
@@ -54,7 +54,7 @@ class MainViewModel: ObservableObject {
         if !sessions.contains(where: { $0.id == newSession.id }) {
             sessions.insert(newSession, at: 0)
         }
-        selectedItem = .chat(newSession.id, initialPrompt: prompt)
+        selectedItem = .chat(newSession.id, initialPrompt: prompt, initialSkill: nil)
     }
     
     func deleteSession(_ session: ChatSession) {
@@ -62,7 +62,7 @@ class MainViewModel: ObservableObject {
     }
     
     func deleteSession(withId id: UUID) {
-        let sessionItem = NavigationItem.chat(id)
+        let sessionItem = NavigationItem.chat(id, initialPrompt: nil, initialSkill: nil)
         
         // Explicitly pop visual paths containing this session item
         homePath.removeAll(where: { $0 == sessionItem })
@@ -87,7 +87,7 @@ class MainViewModel: ObservableObject {
         guard let item = newItem else { return }
         
         switch item {
-        case .chat(let id, _):
+        case .chat(_, _, _):
             if !chatPath.contains(item) {
                 chatPath.append(item)
             }

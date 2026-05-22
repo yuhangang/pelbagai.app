@@ -6,7 +6,7 @@ enum NavigationItem: Hashable {
     case data
     case scanner(String? = nil)
     case settings
-    case chat(UUID, initialPrompt: String? = nil)
+    case chat(UUID, initialPrompt: String? = nil, initialSkill: Skill? = nil)
 }
 
 struct MainView: View {
@@ -65,8 +65,8 @@ struct MainView: View {
                         case .scanner(let toolID):
                             WorkbenchView(toolID: toolID ?? "parcel_address", env: viewModel.environment)
                                 .toolbar(.hidden, for: .tabBar)
-                        case .chat(let id, let prompt):
-                            ChatView(sessionId: id, initialPrompt: prompt, env: viewModel.environment)
+                        case .chat(let id, let prompt, let skill):
+                            ChatView(sessionId: id, initialPrompt: prompt, initialSkill: skill, env: viewModel.environment)
                                 .toolbar(.hidden, for: .tabBar)
                         default:
                             EmptyView()
@@ -82,8 +82,8 @@ struct MainView: View {
                 ChatListView()
                     .navigationDestination(for: NavigationItem.self) { item in
                         switch item {
-                        case .chat(let id, let prompt):
-                            ChatView(sessionId: id, initialPrompt: prompt, env: viewModel.environment)
+                        case .chat(let id, let prompt, let skill):
+                            ChatView(sessionId: id, initialPrompt: prompt, initialSkill: skill, env: viewModel.environment)
                                 .toolbar(.hidden, for: .tabBar)
                         default:
                             EmptyView()
@@ -189,8 +189,8 @@ struct MainView: View {
                         .id(toolID)
                 case .settings:
                     SettingsView(env: viewModel.environment)
-                case .chat(let id, let prompt):
-                    ChatView(sessionId: id, initialPrompt: prompt, env: viewModel.environment)
+                case .chat(let id, let prompt, let skill):
+                    ChatView(sessionId: id, initialPrompt: prompt, initialSkill: skill, env: viewModel.environment)
                         .id(id)
                 }
             } else {

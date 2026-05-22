@@ -12,7 +12,7 @@ import AppKit
 class ChatViewModel: ObservableObject {
     let sessionId: UUID
     let initialPrompt: String?
-    private let environment: AppEnvironment
+    let environment: AppEnvironment
     
     @Published var messages: [ChatMessage] = []
     @Published var textInput: String = ""
@@ -34,6 +34,8 @@ class ChatViewModel: ObservableObject {
     @Published var userDefinitionsCount = 0
     @Published var clarificationRequest: ClarificationRequest?
     @Published var pendingToolCall: PendingToolCall?
+    @Published var activeSkill: Skill? = nil
+    @Published var availableSkills: [Skill] = []
     
     @Published var showDownloadWarning = false
     
@@ -45,10 +47,11 @@ class ChatViewModel: ObservableObject {
         Task { await LLMRequestQueue.shared.clear() }
     }
     
-    init(sessionId: UUID, environment: AppEnvironment, initialPrompt: String? = nil) {
+    init(sessionId: UUID, environment: AppEnvironment, initialPrompt: String? = nil, initialSkill: Skill? = nil) {
         self.sessionId = sessionId
         self.environment = environment
         self.initialPrompt = initialPrompt
+        self.activeSkill = initialSkill
         
         setupBindings()
     }
@@ -78,6 +81,14 @@ class ChatViewModel: ObservableObject {
         environment.agent.$pendingToolCall
             .receive(on: RunLoop.main)
             .sink { [weak self] in self?.pendingToolCall = $0 }
+            .store(in: &cancellables)
+        
+        // Bind to SkillRegistry
+        Publishers.CombineLatest(environment.skills.$builtInSkills, environment.skills.$userSkills)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] builtIn, user in
+                self?.availableSkills = builtIn + user
+            }
             .store(in: &cancellables)
         
         // Bind to MLXModelManager
@@ -240,19 +251,35 @@ class ChatViewModel: ObservableObject {
                     let transcript = try await self.transcribeWithWhisper(audio, policy: voicePolicy)
                     print("🎤 [ChatVM] Voice transcript: \"\(transcript.prefix(80))\"")
 
-                    let result = await self.environment.agent.processText(
-                        transcript,
-                        sessionId: self.sessionId,
-                        history: conversationContext
-                    )
+                    if let activeSkill = await MainActor.run { self.activeSkill } {
+                        await MainActor.run {
+                            self.environment.skills.recordSkillUsed(activeSkill)
+                        }
+                        let responseText = await self.processActiveSkillTurn(transcript, activeSkill: activeSkill, history: conversationContext)
+                        await MainActor.run {
+                            self.isGenerating = false
+                            self.completeGeneration(responseText)
+                            if self.messages.count <= 2 {
+                                Task {
+                                    await self.performTitleUpdate(for: transcript)
+                                }
+                            }
+                        }
+                    } else {
+                        let result = await self.environment.agent.processText(
+                            transcript,
+                            sessionId: self.sessionId,
+                            history: conversationContext
+                        )
 
-                    await MainActor.run {
-                        self.isGenerating = false
-                        self.completeAgentTurn(result)
+                        await MainActor.run {
+                            self.isGenerating = false
+                            self.completeAgentTurn(result)
 
-                        if self.messages.count <= 2 {
-                            Task {
-                                await self.performTitleUpdate(for: transcript)
+                            if self.messages.count <= 2 {
+                                Task {
+                                    await self.performTitleUpdate(for: transcript)
+                                }
                             }
                         }
                     }
@@ -395,20 +422,38 @@ class ChatViewModel: ObservableObject {
                     self.isGenerating = true
                 }
                 
-                let result = await self.environment.agent.processText(
-                    text,
-                    sessionId: self.sessionId,
-                    history: conversationContext
-                )
-                
-                await MainActor.run {
-                    self.isGenerating = false
-                    self.completeAgentTurn(result)
+                if let activeSkill = await MainActor.run { self.activeSkill } {
+                    await MainActor.run {
+                        self.environment.skills.recordSkillUsed(activeSkill)
+                    }
+                    let responseText = await self.processActiveSkillTurn(text, activeSkill: activeSkill, history: conversationContext)
+                    await MainActor.run {
+                        self.isGenerating = false
+                        self.completeGeneration(responseText)
+                        
+                        // If this is the first message, generate a title
+                        if self.messages.count <= 2 {
+                            Task {
+                                await self.performTitleUpdate(for: text)
+                            }
+                        }
+                    }
+                } else {
+                    let result = await self.environment.agent.processText(
+                        text,
+                        sessionId: self.sessionId,
+                        history: conversationContext
+                    )
                     
-                    // If this is the first message, generate a title
-                    if self.messages.count <= 2 {
-                        Task {
-                            await self.performTitleUpdate(for: text)
+                    await MainActor.run {
+                        self.isGenerating = false
+                        self.completeAgentTurn(result)
+                        
+                        // If this is the first message, generate a title
+                        if self.messages.count <= 2 {
+                            Task {
+                                await self.performTitleUpdate(for: text)
+                            }
                         }
                     }
                 }
@@ -751,12 +796,148 @@ class ChatViewModel: ObservableObject {
         return definition.normalized()
     }
     
+    func applySkill(_ skill: Skill) {
+        self.activeSkill = skill
+    }
+    
+    func registerSkill(_ skill: Skill) {
+        environment.skills.registerSkill(skill)
+    }
+    
     private func extractJSONObject(from text: String) -> String {
         guard let start = text.firstIndex(of: "{"),
               let end = text.lastIndex(of: "}") else {
             return text.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         return String(text[start...end])
+    }
+    
+    private func processActiveSkillTurn(_ text: String, activeSkill: Skill, history: [ChatMessage]) async -> String {
+        let brevityInstruction = "\n\nIMPORTANT: Keep your response extremely brief, direct, and concise (at most 1 or 2 sentences). Do not do too much talking. Focus strictly on getting to the point and displaying the result."
+        let systemPrompt = activeSkill.instructions + brevityInstruction
+        var messages: [[String: String]] = [
+            ["role": "system", "content": systemPrompt]
+        ]
+        
+        for msg in history.suffix(8) {
+            let content = msg.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !content.isEmpty else { continue }
+            switch msg.role {
+            case .user:
+                messages.append(["role": "user", "content": content])
+            case .assistant:
+                messages.append(["role": "model", "content": content])
+            case .system:
+                continue
+            }
+        }
+        
+        messages.append(["role": "user", "content": text])
+        
+        return await environment.gemma.generateText(
+            messages: messages,
+            statusText: "Thinking with \(activeSkill.displayName)..."
+        )
+    }
+    
+    func importSkill(from url: URL) {
+        do {
+            let markdown = try String(contentsOf: url, encoding: .utf8)
+            let fallbackName = url.deletingPathExtension().lastPathComponent
+            if let skill = Skill.parse(from: markdown, fallbackName: fallbackName) {
+                applySkill(skill)
+                registerSkill(skill)
+                self.addAssistantMessage("Successfully imported skill \"\(skill.displayName)\" and activated it.")
+            } else {
+                self.addAssistantMessage("Failed to parse the SKILL.md file. Ensure it contains correct frontmatter.")
+            }
+        } catch {
+            self.addAssistantMessage("Failed to read the imported file: \(error.localizedDescription)")
+        }
+    }
+    
+    func deleteCustomSkill(named name: String) {
+        if activeSkill?.name == name {
+            activeSkill = nil
+        }
+        environment.skills.removeUserSkill(named: name)
+    }
+    
+    func saveHtmlSnapshot(for messageId: UUID, html: String) {
+        guard let index = messages.firstIndex(where: { $0.id == messageId }) else { return }
+        let msg = messages[index]
+        
+        do {
+            if let existingHtmlAttachment = msg.attachments.first(where: { $0.fileType.lowercased() == "html" }) {
+                // Update the existing HTML file on disk directly
+                _ = try saveHTMLAttachmentToStorage(htmlContent: html, filename: existingHtmlAttachment.localPath)
+                print("💾 [ChatVM] Updated existing HTML snapshot: \(existingHtmlAttachment.localPath)")
+            } else {
+                // Create a new HTML attachment
+                let uniqueName = try saveHTMLAttachmentToStorage(htmlContent: html)
+                let attachment = ChatAttachment(
+                    id: UUID(),
+                    filename: "Skill_Snapshot.html",
+                    fileType: "html",
+                    localPath: uniqueName,
+                    extractedText: "[HTML Snapshot of Skill Output]"
+                )
+                var currentAttachments = msg.attachments
+                currentAttachments.append(attachment)
+                let attachmentsData = try JSONEncoder().encode(currentAttachments)
+                
+                let updatedMsg = ChatMessage(
+                    id: msg.id,
+                    sessionId: msg.sessionId,
+                    role: msg.role,
+                    content: msg.content,
+                    imageData: msg.imageData,
+                    attachmentsData: attachmentsData,
+                    timestamp: msg.timestamp
+                )
+                
+                messages[index] = updatedMsg
+                environment.database.updateMessageAttachments(id: msg.id, attachmentsData: attachmentsData)
+                print("💾 [ChatVM] Saved new HTML snapshot: \(uniqueName)")
+            }
+        } catch {
+            print("⚠️ [ChatVM] Failed to save/update HTML snapshot: \(error)")
+        }
+    }
+    
+    func updateMessageImageData(for messageId: UUID, imageData: Data) {
+        guard let index = messages.firstIndex(where: { $0.id == messageId }) else { return }
+        let msg = messages[index]
+        
+        let updatedMsg = ChatMessage(
+            id: msg.id,
+            sessionId: msg.sessionId,
+            role: msg.role,
+            content: msg.content,
+            imageData: imageData,
+            attachmentsData: msg.attachmentsData,
+            timestamp: msg.timestamp
+        )
+        
+        messages[index] = updatedMsg
+        environment.database.updateMessageImageData(id: msg.id, imageData: imageData)
+        print("💾 [ChatVM] Saved image data for message: \(msg.id)")
+    }
+    
+    private func saveHTMLAttachmentToStorage(htmlContent: String, filename: String? = nil) throws -> String {
+        let fileManager = FileManager.default
+        let documentsURL = try fileManager.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let attachmentsDirectory = documentsURL.appendingPathComponent("Attachments", isDirectory: true)
+        
+        if !fileManager.fileExists(atPath: attachmentsDirectory.path) {
+            try fileManager.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
+        }
+        
+        let uniqueName = filename ?? "\(UUID().uuidString).html"
+        let destinationURL = attachmentsDirectory.appendingPathComponent(uniqueName)
+        
+        try htmlContent.write(to: destinationURL, atomically: true, encoding: .utf8)
+        return uniqueName
     }
 }
 

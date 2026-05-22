@@ -1,3 +1,4 @@
+2c2cd9eed4eebc9e9ddd50740b780392a322416e		branch 'main' of https://github.com/SharpAI/mlx-swift-lm
 0515962a08bd6a75956a594f46dd6e40108cc0c1	not-for-merge	branch 'feat/mtp-speculative-decoding' of https://github.com/SharpAI/mlx-swift-lm
 d8619501febab3a67c0c898bf26abf53e5cec873	not-for-merge	branch 'feature/gemma4-moe-4x-alignment' of https://github.com/SharpAI/mlx-swift-lm
 894cb6fc1452ed9b8bfcbd28e94f74bc48bbd622	not-for-merge	branch 'feature/gemma4-omni-fixes' of https://github.com/SharpAI/mlx-swift-lm
@@ -8,7 +9,6 @@ dbe823b81d9ef9dd7e26f812c5675e27d194160d	not-for-merge	branch 'feature/revert-gl
 a15c53c0d8afc717ff215d11312bbde0283e651b	not-for-merge	branch 'fix/ci-mlx-swift-path' of https://github.com/SharpAI/mlx-swift-lm
 05f254953597c1952de4699d36bdff46c5fe2dae	not-for-merge	branch 'fix/remove-path-dependency' of https://github.com/SharpAI/mlx-swift-lm
 c7ea10f161a41043e2c88e08644b85b8cef28158	not-for-merge	branch 'glm5.1' of https://github.com/SharpAI/mlx-swift-lm
-2c2cd9eed4eebc9e9ddd50740b780392a322416e	not-for-merge	branch 'main' of https://github.com/SharpAI/mlx-swift-lm
 4fdce2ae90be8f4c007aa7b5a8940517b38572fe	not-for-merge	branch 'sync/upstream-latest' of https://github.com/SharpAI/mlx-swift-lm
 43ebde8e5a291c7f81ac5ab6f3323d4587fbd562	not-for-merge	'refs/pull/1/head' of https://github.com/SharpAI/mlx-swift-lm
 c1ff9f84ff6d420dcb173b0d8b3c713ecbcdbd7a	not-for-merge	'refs/pull/10/head' of https://github.com/SharpAI/mlx-swift-lm

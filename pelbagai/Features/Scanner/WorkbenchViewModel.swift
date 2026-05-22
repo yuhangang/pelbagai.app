@@ -35,6 +35,10 @@ class WorkbenchViewModel: ObservableObject {
     @Published var status = ""
     @Published var lastResult: ScanResult?
     @Published var allDefinitions: [LocalToolDefinition] = []
+    @Published var activeWorkflowRun: WorkflowRun?
+    @Published var workflowArtifact: WorkflowArtifact?
+    @Published var isWorkflowRunning = false
+    @Published var workflowStatus = ""
     
     private let exporter = ExcelExporter()
     private var cancellables = Set<AnyCancellable>()
@@ -85,6 +89,26 @@ class WorkbenchViewModel: ObservableObject {
             .sink { [weak self] in self?.allDefinitions = $0 }
             .store(in: &cancellables)
 
+        environment.workflows.$activeRun
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.activeWorkflowRun = $0 }
+            .store(in: &cancellables)
+
+        environment.workflows.$lastArtifact
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.workflowArtifact = $0 }
+            .store(in: &cancellables)
+
+        environment.workflows.$isRunning
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.isWorkflowRunning = $0 }
+            .store(in: &cancellables)
+
+        environment.workflows.$status
+            .receive(on: RunLoop.main)
+            .sink { [weak self] in self?.workflowStatus = $0 }
+            .store(in: &cancellables)
+
         Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
             .sink { [weak self] _ in
                 guard let self = self else { return }
@@ -133,6 +157,11 @@ class WorkbenchViewModel: ObservableObject {
         
         promptResponses.append(ToolPromptResponse(text: text, isUser: true))
         textInput = ""
+
+        if let target = workflowTarget(for: text) ?? (tool.workflow == nil ? nil : tool) {
+            Task { await runConfiguredWorkflow(targetDefinition: target, latestSourceResult: nil, reason: text) }
+            return
+        }
         
         Task { await processTextInput(text) }
     }
@@ -342,6 +371,16 @@ class WorkbenchViewModel: ObservableObject {
                     self.environment.storage.save(execution.scanResult, to: self.toolID)
                     self.loadStoredResults()
                 }
+
+                if let target = self.workflowTarget(for: customPrompt) {
+                    Task {
+                        await self.runConfiguredWorkflow(
+                            targetDefinition: target,
+                            latestSourceResult: execution.scanResult,
+                            reason: customPrompt ?? "Source tool requested a workflow."
+                        )
+                    }
+                }
             }
             
             await MainActor.run {
@@ -402,6 +441,69 @@ class WorkbenchViewModel: ObservableObject {
         if let url = exporter.exportToCSV(results: resultsToExport) {
             exportFileURL = url
             showExportSheet = true
+        }
+    }
+
+    private func workflowTarget(for userPrompt: String?) -> LocalToolDefinition? {
+        WorkflowPlanner.workflowTarget(
+            forSourceToolID: toolID,
+            userPrompt: userPrompt,
+            definitions: allDefinitions
+        )
+    }
+
+    private func defaultWorkflowTarget() -> LocalToolDefinition? {
+        if tool.workflow != nil {
+            return tool
+        }
+        return allDefinitions.first { definition in
+            definition.workflow?.triggerSourceToolIDs.contains(toolID) == true
+        }
+    }
+
+    func runConfiguredWorkflow(
+        targetDefinition: LocalToolDefinition? = nil,
+        latestSourceResult: ScanResult? = nil,
+        reason: String = "Run configured workflow"
+    ) async {
+        guard let targetDefinition = targetDefinition ?? defaultWorkflowTarget() else {
+            await MainActor.run {
+                self.promptResponses.append(
+                    ToolPromptResponse(text: "No configured workflow is available for this tool.", isUser: false)
+                )
+            }
+            return
+        }
+
+        let result = await environment.workflows.runWorkflow(
+            targetDefinition: targetDefinition,
+            latestSourceResult: latestSourceResult,
+            reason: reason
+        )
+
+        await MainActor.run {
+            self.activeWorkflowRun = result.run
+            self.workflowArtifact = result.artifact
+            if self.toolID == targetDefinition.toolID {
+                self.loadStoredResults()
+                self.lastResult = result.outputResult
+            }
+
+            if let artifact = result.artifact {
+                self.promptResponses.append(
+                    ToolPromptResponse(
+                        text: artifact.summary,
+                        isUser: false
+                    )
+                )
+            } else if result.run.status == .failed {
+                self.promptResponses.append(
+                    ToolPromptResponse(
+                        text: result.run.events.last?.detail ?? "I could not generate a report from the saved receipts.",
+                        isUser: false
+                    )
+                )
+            }
         }
     }
     

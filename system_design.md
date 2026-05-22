@@ -142,12 +142,45 @@ capability by `pluginID` and `capabilityID`.
 later turns. The bundled Wikipedia tool uses a `topic` -> `last_topic` bridge,
 while its retrieval behavior lives entirely in `LOCAL_TOOLS.json`.
 
+## Workflow Runtime
+
+Multi-tool behavior is now owned by `Core/Services/Workflow/`. `WorkflowPlanner`
+recognizes bounded workflows from `LOCAL_TOOLS.json`, `WorkflowExecutor` runs
+the workflow, `WorkflowStore` persists run traces in Documents, and
+`ToolScriptRuntime` executes the tool definition's transform script in a
+constrained JavaScriptCore context. The model may request a workflow or
+generate a tool definition that contains a transform script, but Swift owns
+storage access, native plugin boundaries, script invocation, persistence, and
+failure handling.
+
+The bundled expense report workflow is declared on the `expense_report` tool:
+
+```text
+receipt ScanResult rows
+  -> expense_report.workflow.transformScript
+  -> WorkflowArtifact
+  -> expense_report ScanResult
+```
+
+Receipt extraction still uses `VisionManager` and stores a normal `ScanResult`
+under `receipt`. The `expense_report` JSON definition declares that `receipt`
+is a trigger source, loads receipt rows through the native storage boundary, and
+uses its transform script to parse totals/dates/merchants into a
+`WorkflowArtifact`. `WorkbenchView` renders generic artifact metrics and Swift
+Charts, while the generic `WorkflowPlugin` exposes `run_tool_workflow` to the
+chat agent without hardcoding report or receipt behavior in Swift.
+
+Workflow runs are intentionally separate from scan results. A run records step
+events, status, source result IDs, and output result ID; the output remains a
+regular tool result so existing storage, export, and library views continue to
+work.
+
 ## Action Execution
 
-Model output never executes code. The scanner accepts `_actions` as data only
-when the active local tool has the matching capability. Unsupported `_state`,
-`_actions`, and `_followUp` keys are stripped by `VisionManager` before a
-`ScanResult` is stored or rendered.
+Ad-hoc scanner output never executes code. The scanner accepts `_actions` as
+data only when the active local tool has the matching capability. Unsupported
+`_state`, `_actions`, and `_followUp` keys are stripped by `VisionManager`
+before a `ScanResult` is stored or rendered.
 
 SwiftUI validates and executes supported actions through app-owned code. The
 current supported action is `openURL`; `ScannerView` only opens `http` and
@@ -157,11 +190,12 @@ requiring user approval.
 Runtime plugin invocations are also Swift-owned. Model output may request a
 runtime action name, and `LOCAL_TOOLS.json` or a user definition may map that
 name to a known plugin capability. The model cannot invent new plugins,
-capabilities, filesystem access, database access, or scripts; unknown plugin
-IDs and capability IDs fail closed in `NativePluginRegistry`.
+capabilities, filesystem access, or database access; unknown plugin IDs and
+capability IDs fail closed in `NativePluginRegistry`.
 
-`ScriptEngine` remains only as a deprecated no-op compatibility shim. New
-features must not reintroduce JavaScript execution for model-produced content.
+`ScriptEngine` remains only as a deprecated no-op compatibility shim. Workflow
+JavaScript is a separate path: it runs through `ToolScriptRuntime` with only a
+JSON input payload and must return a typed `WorkflowArtifact`.
 
 ## Storage
 
@@ -184,8 +218,8 @@ chat prompts.
 
 ### Tool Workflows and Hooks
 
-The local tool protocol should be able to grow into inter-tool workflows without
-giving model output execution privileges. The intended shape is:
+The local tool protocol can continue to grow into richer inter-tool workflows
+without giving model output execution privileges. The durable shape is:
 
 ```text
 ToolDefinition
@@ -196,10 +230,10 @@ ToolDefinition
   -> ToolOrchestrator decision
 ```
 
-Future workflow support should add Swift-owned types such as `ToolInvocation`,
-`ToolResult`, `ToolEvent`, and `ToolOrchestrator`. A scan result may request a
-declarative next step, but the orchestrator must validate and execute only
-allowed transitions.
+Future workflow support can add broader `ToolInvocation`, `ToolResult`,
+`ToolEvent`, and `ToolOrchestrator` abstractions once more than the receipt
+report workflow needs them. A scan result may request a declarative next step,
+but the orchestrator must validate and execute only allowed transitions.
 
 Planned examples:
 

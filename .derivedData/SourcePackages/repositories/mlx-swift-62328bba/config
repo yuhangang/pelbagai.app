@@ -4,9 +4,6 @@
 	bare = true
 	ignorecase = true
 	precomposeunicode = true
-	symlinks = true
-	fsmonitor = false
-	longpaths = true
 [remote "origin"]
 	url = https://github.com/SharpAI/mlx-swift.git
 	tagOpt = --no-tags

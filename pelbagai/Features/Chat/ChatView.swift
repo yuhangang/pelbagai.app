@@ -24,9 +24,11 @@ struct ChatView: View {
     @State private var showRenameAlert = false
     @State private var newSessionTitle = ""
     @State private var showFilePicker = false
+    @State private var showSkillsSheet = false
+    @State private var showSkillImporter = false
     
-    init(sessionId: UUID, initialPrompt: String? = nil, env: AppEnvironment) {
-        _viewModel = StateObject(wrappedValue: ChatViewModel(sessionId: sessionId, environment: env, initialPrompt: initialPrompt))
+    init(sessionId: UUID, initialPrompt: String? = nil, initialSkill: Skill? = nil, env: AppEnvironment) {
+        _viewModel = StateObject(wrappedValue: ChatViewModel(sessionId: sessionId, environment: env, initialPrompt: initialPrompt, initialSkill: initialSkill))
     }
     
     var body: some View {
@@ -45,11 +47,13 @@ struct ChatView: View {
                         isLoadingModels: viewModel.isLoadingModels,
                         isModelLoaded: viewModel.isModelLoaded,
                         userDefinitionsCount: viewModel.userDefinitionsCount,
+                        activeSkill: viewModel.activeSkill,
                         pendingImage: $viewModel.pendingImage,
                         onMicTap: viewModel.handleMicTap,
                         onCameraTap: { viewModel.showCamera = true },
                         onFileTap: { showFilePicker = true },
-                        onSend: viewModel.sendTypedMessage
+                        onSend: viewModel.sendTypedMessage,
+                        onSkillsTap: { showSkillsSheet = true }
                     )
                 }
                 .padding(.vertical, 8)
@@ -79,10 +83,6 @@ struct ChatView: View {
             
             if let request = viewModel.clarificationRequest {
                 clarificationOverlay(request)
-            }
-
-            if let pending = viewModel.pendingToolCall {
-                toolConfirmationOverlay(pending)
             }
         }
 #if os(iOS)
@@ -323,6 +323,20 @@ struct ChatView: View {
                             .id("streaming")
                     }
                     
+                    if let pending = viewModel.pendingToolCall {
+                        ToolConfirmationBlock(
+                            pending: pending,
+                            onConfirm: { args in
+                                viewModel.confirmPendingToolCall(arguments: args)
+                            },
+                            onCancel: {
+                                viewModel.cancelPendingToolCall()
+                            }
+                        )
+                        .id("toolConfirmation")
+                        .padding(.vertical, 8)
+                    }
+                    
                     Spacer().frame(height: 20)
                     Color.clear.frame(height: 1).id("bottom")
                 }
@@ -341,11 +355,59 @@ struct ChatView: View {
                     scrollToBottom(proxy: proxy)
                 }
             }
+            .onChange(of: viewModel.pendingToolCall) { _, pending in
+                if pending != nil {
+                    withAnimation {
+                        proxy.scrollTo("toolConfirmation", anchor: .bottom)
+                    }
+                }
+            }
 #if os(iOS)
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 scrollToBottom(proxy: proxy)
             }
 #endif
+        }
+        .sheet(isPresented: $showSkillsSheet) {
+            SkillsBrowserSheet(
+                showSkillImporter: $showSkillImporter,
+                onSkillSelected: { skill in
+                    viewModel.activeSkill = skill
+                }
+            )
+            .environmentObject(viewModel.environment.skills)
+        }
+        .fileImporter(
+            isPresented: $showSkillImporter,
+            allowedContentTypes: [.plainText],
+            allowsMultipleSelection: false
+        ) { result in
+            handleSkillImport(result: result)
+        }
+    }
+    
+    private func handleSkillImport(result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            guard url.startAccessingSecurityScopedResource() else { return }
+            defer { url.stopAccessingSecurityScopedResource() }
+            
+            do {
+                let markdown = try String(contentsOf: url, encoding: .utf8)
+                if let skill = Skill.parse(from: markdown) {
+                    viewModel.registerSkill(skill)
+                    viewModel.activeSkill = skill
+                    print("🧠 ChatView: Successfully imported and activated skill: \(skill.name)")
+                } else {
+                    print("🧠 ChatView: Failed to parse skill from markdown")
+                }
+            } catch {
+                print("🧠 ChatView: Failed to parse skill from markdown: \(error)")
+            }
+            
+        case .failure(let error):
+            print("🧠 ChatView: Skill import failed: \(error)")
         }
     }
     
@@ -521,23 +583,6 @@ struct ChatView: View {
         .zIndex(10)
     }
 
-    private func toolConfirmationOverlay(_ pending: PendingToolCall) -> some View {
-        ZStack {
-            Color.black.opacity(0.4)
-                .ignoresSafeArea()
-
-            ToolConfirmationBlock(
-                pending: pending,
-                onConfirm: { args in
-                    viewModel.confirmPendingToolCall(arguments: args)
-                },
-                onCancel: {
-                    viewModel.cancelPendingToolCall()
-                }
-            )
-        }
-        .zIndex(11)
-    }
 }
 
 private enum ToolDefinitionError: LocalizedError {

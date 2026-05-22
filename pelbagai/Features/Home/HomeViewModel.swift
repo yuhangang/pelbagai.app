@@ -16,7 +16,11 @@ class HomeViewModel: ObservableObject {
     @Published var userDefinitionsCount = 0
     @Published var allDefinitions: [LocalToolDefinition] = []
     
-    private let environment: AppEnvironment
+    // Skills mirroring
+    @Published var availableSkills: [Skill] = []
+    @Published var recentSkills: [Skill] = []
+    
+    let environment: AppEnvironment
     private var cancellables = Set<AnyCancellable>()
     
     init(environment: AppEnvironment) {
@@ -31,16 +35,6 @@ class HomeViewModel: ObservableObject {
             .sink { [weak self] in self?.totalResultCount = $0 }
             .store(in: &cancellables)
             
-        environment.gemma.$isGenerating
-            .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.isGenerating = $0 }
-            .store(in: &cancellables)
-            
-        environment.mlx.$isLoading
-            .receive(on: RunLoop.main)
-            .sink { [weak self] in self?.isLoadingModels = $0 }
-            .store(in: &cancellables)
-        
         environment.registry.$userDefinitions
             .receive(on: RunLoop.main)
             .map { $0.count }
@@ -51,15 +45,21 @@ class HomeViewModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] in self?.allDefinitions = $0 }
             .store(in: &cancellables)
-        
-        // Timer for model loaded state
-        Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
-            .sink { [weak self] _ in
-                guard let self = self else { return }
-                self.isModelLoaded = self.environment.gemma.isModelLoaded
+            
+        Publishers.CombineLatest(environment.skills.$builtInSkills, environment.skills.$userSkills)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] builtIn, user in
+                self?.availableSkills = builtIn + user
             }
             .store(in: &cancellables)
             
+        environment.skills.$recentSkillNames
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.recentSkills = self?.environment.skills.recentSkills ?? []
+            }
+            .store(in: &cancellables)
+        
         // Listen for session updates
         NotificationCenter.default.publisher(for: .sessionUpdated)
             .receive(on: RunLoop.main)
@@ -73,6 +73,11 @@ class HomeViewModel: ObservableObject {
         recentSessions = environment.database.getAllSessions()
     }
     
+    func registerSkill(_ skill: Skill) {
+        environment.skills.registerSkill(skill)
+    }
+    
+    // MARK: - Actions
     var filteredSessions: [ChatSession] {
         if chatSearchText.isEmpty {
             return recentSessions
@@ -97,6 +102,12 @@ class HomeViewModel: ObservableObject {
             newSession = environment.database.createSession(title: title)
         }
         chatSearchText = ""
+        loadData()
+        return newSession.id
+    }
+    
+    func startNewChatForSkill() -> UUID {
+        let newSession = environment.database.getOrCreateEmptySession(title: "New Chat")
         loadData()
         return newSession.id
     }

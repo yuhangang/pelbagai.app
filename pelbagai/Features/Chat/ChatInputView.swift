@@ -31,6 +31,7 @@ struct ChatInputView: View {
     var isLoadingModels: Bool
     var isModelLoaded: Bool
     var userDefinitionsCount: Int
+    var activeSkill: Skill? = nil
     
     @Binding var pendingImage: UIImage?
     
@@ -38,9 +39,11 @@ struct ChatInputView: View {
     var onCameraTap: () -> Void
     var onFileTap: () -> Void
     var onSend: () -> Void
+    var onSkillsTap: () -> Void
     
     @Environment(\.colorScheme) private var colorScheme
     @State private var animateGradient = false
+    @FocusState private var isFocused: Bool
     
     var body: some View {
         VStack(spacing: 0) {
@@ -77,15 +80,23 @@ struct ChatInputView: View {
                 }
 
                 HStack {
-                    TextField(inputMode.placeholder, text: $textInput)
+                    TextField(activeSkill != nil ? "Ask \(activeSkill!.displayName)..." : inputMode.placeholder, text: $textInput)
                         .font(.system(size: 16, design: .rounded))
                         .foregroundColor(.primary)
                         .padding(.horizontal, 18)
                         .padding(.vertical, 12)
                         .disabled(!isModelLoaded)
+                        .focused($isFocused)
+                        .onSubmit {
+                            isFocused = false
+                            onSend()
+                        }
                     
                     if !textInput.isEmpty || pendingImage != nil {
-                        Button(action: onSend) {
+                        Button(action: {
+                            isFocused = false
+                            onSend()
+                        }) {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(colorScheme == .dark ? .black : .white)
@@ -114,7 +125,7 @@ struct ChatInputView: View {
     }
     
     private var actionRow: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             // Add button (dropdown option)
             Menu {
                 Picker("Mode", selection: $inputMode) {
@@ -136,10 +147,32 @@ struct ChatInputView: View {
             .disabled(isLoadingModels || isGenerating || !isModelLoaded)
             .opacity(isLoadingModels || !isModelLoaded ? 0.4 : 1.0)
             
+            // Skills toggle button
+            Button(action: {
+                isFocused = false
+                onSkillsTap()
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "bolt.fill")
+                        .font(.system(size: 11, weight: .bold))
+                    Text(activeSkill?.displayName ?? "Skills")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(activeSkill != nil ? Color.purple : Color.cyan))
+            }
+            .disabled(isLoadingModels || isGenerating || !isModelLoaded)
+            .opacity(isLoadingModels || !isModelLoaded ? 0.4 : 1.0)
+            
             Spacer()
             
             // Camera button
-            Button(action: onCameraTap) {
+            Button(action: {
+                isFocused = false
+                onCameraTap()
+            }) {
                 Image(systemName: "camera.fill")
                     .font(.system(size: 18))
                     .foregroundColor(.primary.opacity(0.75))
@@ -148,7 +181,10 @@ struct ChatInputView: View {
             .opacity(isLoadingModels || !isModelLoaded ? 0.4 : 1.0)
             
             // File button
-            Button(action: onFileTap) {
+            Button(action: {
+                isFocused = false
+                onFileTap()
+            }) {
                 Image(systemName: "paperclip")
                     .font(.system(size: 18))
                     .foregroundColor(.primary.opacity(0.75))
@@ -157,7 +193,10 @@ struct ChatInputView: View {
             .opacity(isLoadingModels || !isModelLoaded ? 0.4 : 1.0)
             
             // Mic button
-            Button(action: onMicTap) {
+            Button(action: {
+                isFocused = false
+                onMicTap()
+            }) {
                 ZStack {
                     if isRecording {
                         Circle()

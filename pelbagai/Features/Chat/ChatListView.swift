@@ -4,6 +4,7 @@ struct ChatListView: View {
     @EnvironmentObject var env: AppEnvironment
     @EnvironmentObject var viewModel: MainViewModel
     @State private var chatboxText: String = ""
+    @FocusState private var isChatboxFocused: Bool
     
     var body: some View {
         VStack(spacing: 0) {
@@ -61,12 +62,17 @@ struct ChatListView: View {
                         .font(.system(size: 16, design: .rounded))
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
+                        .focused($isChatboxFocused)
                         .onSubmit {
+                            isChatboxFocused = false
                             sendChatboxPrompt()
                         }
                     
                     if !chatboxText.isEmpty {
-                        Button(action: sendChatboxPrompt) {
+                        Button(action: {
+                            isChatboxFocused = false
+                            sendChatboxPrompt()
+                        }) {
                             Image(systemName: "arrow.up")
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundColor(.white)

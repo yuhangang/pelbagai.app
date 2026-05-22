@@ -288,6 +288,14 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         var fallbackRequest: RuntimeRequestDefinition?
         var plugin: PluginInvocationDefinition?
     }
+
+    struct WorkflowDefinition: Codable, Equatable {
+        var triggerSourceToolIDs: [String]
+        var triggerKeywords: [String]
+        var inputToolIDs: [String]
+        var saveLatestSourceResult: Bool
+        var transformScript: String
+    }
     
     var schemaVersion: Int
     var toolID: String
@@ -307,6 +315,7 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
     var chainTo: [String]?
     var stateBridges: [StateBridgeDefinition]?
     var runtimeActions: [String: RuntimeActionDefinition]?
+    var workflow: WorkflowDefinition?
     var icon: String?
     var color: String?
     var urlTemplate: String?
@@ -333,6 +342,7 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         case chainTo
         case stateBridges
         case runtimeActions
+        case workflow
         case icon
         case color
         case urlTemplate
@@ -363,6 +373,7 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         chainTo = try container.decodeIfPresent([String].self, forKey: .chainTo)
         stateBridges = try container.decodeIfPresent([StateBridgeDefinition].self, forKey: .stateBridges)
         runtimeActions = try container.decodeIfPresent([String: RuntimeActionDefinition].self, forKey: .runtimeActions)
+        workflow = try container.decodeIfPresent(WorkflowDefinition.self, forKey: .workflow)
         icon = try container.decodeIfPresent(String.self, forKey: .icon)
         color = try container.decodeIfPresent(String.self, forKey: .color)
         urlTemplate = try container.decodeIfPresent(String.self, forKey: .urlTemplate)
@@ -388,6 +399,7 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         chainTo: [String]? = nil,
         stateBridges: [StateBridgeDefinition]? = nil,
         runtimeActions: [String: RuntimeActionDefinition]? = nil,
+        workflow: WorkflowDefinition? = nil,
         icon: String? = nil,
         color: String? = nil,
         urlTemplate: String? = nil,
@@ -411,6 +423,7 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
         self.chainTo = chainTo
         self.stateBridges = stateBridges
         self.runtimeActions = runtimeActions
+        self.workflow = workflow
         self.icon = icon
         self.color = color
         self.urlTemplate = urlTemplate
@@ -452,6 +465,15 @@ struct LocalToolDefinition: Identifiable, Codable, Equatable {
             chainTo: chainTo?.map(Self.normalizedToolID).filter { !$0.isEmpty },
             stateBridges: stateBridges,
             runtimeActions: runtimeActions,
+            workflow: workflow.map { workflow in
+                WorkflowDefinition(
+                    triggerSourceToolIDs: workflow.triggerSourceToolIDs.map(Self.normalizedToolID).filter { !$0.isEmpty },
+                    triggerKeywords: workflow.triggerKeywords.map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }.filter { !$0.isEmpty },
+                    inputToolIDs: workflow.inputToolIDs.map(Self.normalizedToolID).filter { !$0.isEmpty },
+                    saveLatestSourceResult: workflow.saveLatestSourceResult,
+                    transformScript: workflow.transformScript
+                )
+            },
             icon: icon,
             color: color
         )
