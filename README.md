@@ -51,7 +51,9 @@ System integration now goes through Swift-native plugins registered by
 `NativePluginRegistry`. Plugins are trusted compile-time code, not dynamic JSON
 tools. Chat tools and local tool runtime actions can call plugin capabilities,
 while dynamic tool definitions remain declarative adapters that cannot create
-new native powers.
+new native powers. Users can disable individual system capabilities from
+Settings; disabled capabilities are enforced inside `NativePluginRegistry` so
+chat, runtime actions, and workflows fail closed before plugin execution.
 
 The bundled Wikipedia tool now uses config-driven `stateBridges` and
 `runtimeActions` in `LOCAL_TOOLS.json` instead of a custom Swift handler. Its

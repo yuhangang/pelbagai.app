@@ -11,6 +11,7 @@ struct HomeView: View {
     @FocusState private var isChatBarFocused: Bool
     @State private var showSkillsSheet = false
     @State private var showSkillImporter = false
+    @State private var selectedCanvasApp: CanvasAppInfo? = nil
     
     init(selectedItem: Binding<NavigationItem?>, env: AppEnvironment) {
         self._selectedItem = selectedItem
@@ -24,7 +25,13 @@ struct HomeView: View {
                     headerSection
                     statsSection
                     
+                    canvasCreatorBanner
+                    
                     skillsSection
+                    
+                    if !viewModel.canvasApps.isEmpty {
+                        canvasAppsSection
+                    }
                     
                     if !viewModel.defaultTools.isEmpty {
                         toolSection(title: "Default Tools", tools: viewModel.defaultTools)
@@ -59,6 +66,40 @@ struct HomeView: View {
                 }
             )
             .environmentObject(viewModel.environment.skills)
+        }
+        .fullScreenCover(item: $selectedCanvasApp) { app in
+            let htmlContent: String? = {
+                if app.localPath.hasPrefix("bundle:") {
+                    let resourceName = app.localPath.replacingOccurrences(of: "bundle:", with: "")
+                    if let bundleURL = Bundle.main.url(forResource: resourceName, withExtension: "html") ??
+                                       Bundle.main.url(forResource: resourceName, withExtension: "html", subdirectory: "CanvasExamples") {
+                        return try? String(contentsOf: bundleURL, encoding: .utf8)
+                    }
+                } else {
+                    if let documentsURL = try? FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true) {
+                        let fileURL = documentsURL.appendingPathComponent("Attachments").appendingPathComponent(app.localPath)
+                        return try? String(contentsOf: fileURL, encoding: .utf8)
+                    }
+                }
+                return nil
+            }()
+            
+            if let html = htmlContent {
+                CanvasFullscreenView(htmlContent: html, canvasId: app.id.uuidString)
+            } else {
+                VStack(spacing: 20) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.largeTitle)
+                        .foregroundColor(.orange)
+                    Text("Unable to load canvas HTML.")
+                        .font(.headline)
+                    Button("Dismiss") {
+                        selectedCanvasApp = nil
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+                .padding()
+            }
         }
         .fileImporter(
             isPresented: $showSkillImporter,
@@ -323,6 +364,156 @@ struct HomeView: View {
         }
     }
     
+    // MARK: - Canvas Section
+    
+    private var canvasAppsSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Image(systemName: "paintpalette.fill")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(.purple)
+                
+                Text("My Canvas Apps")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+                
+                Spacer()
+            }
+            .padding(.horizontal, 24)
+            
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(viewModel.canvasApps) { app in
+                        canvasAppCard(for: app)
+                    }
+                }
+                .padding(.horizontal, 24)
+            }
+        }
+    }
+    
+    private func canvasAppCard(for app: CanvasAppInfo) -> some View {
+        let colors = gradientColors(for: app.id)
+        
+        return ZStack(alignment: .topTrailing) {
+            Button(action: {
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.prepare()
+                generator.impactOccurred()
+                selectedCanvasApp = app
+            }) {
+                VStack(alignment: .leading, spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .fill(
+                                LinearGradient(
+                                    colors: [colors.0.opacity(0.15), colors.1.opacity(0.15)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                            .frame(width: 44, height: 44)
+                        
+                        Image(systemName: "paintpalette.fill")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [colors.0, colors.1],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+                    
+                    Spacer(minLength: 4)
+                    
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(app.title)
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                        
+                        HStack(spacing: 4) {
+                            Text("Interactive")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(.purple)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Color.purple.opacity(0.1))
+                                .cornerRadius(4)
+                            
+                            Text(app.timestamp, style: .relative)
+                                .font(.system(size: 10))
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+                .padding(14)
+                .frame(width: 160, height: 140, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color(.secondarySystemBackground))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [colors.0.opacity(0.2), colors.1.opacity(0.08)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1
+                                )
+                        )
+                )
+            }
+            .buttonStyle(.plain)
+            
+            // Secondary button to route to original chat session
+            Button(action: {
+                let generator = UIImpactFeedbackGenerator(style: .light)
+                generator.prepare()
+                generator.impactOccurred()
+                
+                if app.sessionId == UUID(uuidString: "00000000-0000-0000-0000-000000000000")! {
+                    let canvasSkill = viewModel.environment.skills.skill(byID: "canvas-app-builder")
+                    let newSessionId = viewModel.startNewChatForSkill()
+                    selectedItem = .chat(newSessionId, initialPrompt: "I want to modify the '\(app.title)' canvas app template. Please load it so we can iterate on it.", initialSkill: canvasSkill)
+                } else {
+                    selectedItem = .chat(app.sessionId)
+                }
+            }) {
+                Image(systemName: "bubble.left.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white)
+                    .frame(width: 26, height: 26)
+                    .background(
+                        LinearGradient(
+                            colors: [colors.0, colors.1],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .clipShape(Circle())
+                    .shadow(color: Color.black.opacity(0.12), radius: 3, x: 0, y: 2)
+            }
+            .padding(.top, 10)
+            .padding(.trailing, 10)
+        }
+    }
+    
+    private func gradientColors(for id: UUID) -> (Color, Color) {
+        let hash = abs(id.hashValue)
+        let pairs: [(Color, Color)] = [
+            (.purple, .blue),
+            (.pink, .orange),
+            (.teal, .indigo),
+            (.orange, .red),
+            (.green, .teal),
+            (.mint, .purple)
+        ]
+        return pairs[hash % pairs.count]
+    }
+    
     private func toolSection(title: String, tools: [LocalToolDefinition]) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(title)
@@ -429,6 +620,64 @@ struct HomeView: View {
                 .padding(.horizontal, 24)
             }
         }
+    }
+    
+    private var canvasCreatorBanner: some View {
+        Button(action: {
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.prepare()
+            generator.impactOccurred()
+            selectedItem = .canvasCreator(UUID())
+        }) {
+            HStack(spacing: 16) {
+                // Icon representation
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.18))
+                        .frame(width: 48, height: 48)
+                    
+                    Image(systemName: "paintpalette.fill")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(.white)
+                }
+                
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Build AI Canvas App")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                    
+                    Text("Interactive on-device HTML5 apps with automated verification.")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.85))
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+                }
+                
+                Spacer()
+                
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.purple, Color.orange],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .shadow(color: Color.purple.opacity(0.3), radius: 8, x: 0, y: 4)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(Color.white.opacity(0.15), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 24)
     }
 }
 

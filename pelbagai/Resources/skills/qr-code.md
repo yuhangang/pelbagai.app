@@ -149,6 +149,10 @@ Instruct the user on how the dense matrix barcode format handles error correctio
       <img class="qr-img" id="qr" onload="onQrLoad()" alt="QR Code" />
     </div>
     <div class="label" id="label">Generating...</div>
+    <button class="save-btn" id="saveBtn" onclick="saveQR()" style="display: none; margin-top: 8px;">
+      <svg class="svg-icon" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
+      Save QR Code
+    </button>
   </div>
   <script>
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
@@ -160,9 +164,17 @@ Instruct the user on how the dense matrix barcode format handles error correctio
       if (!qrSrc || qrSrc === "" || qrSrc === window.location.href) {
         return;
       }
+      document.getElementById('saveBtn').style.display = 'inline-flex';
+    }
+    
+    function saveQR() {
+      const qrSrc = document.getElementById('qr').src;
+      if (!qrSrc || qrSrc === "" || qrSrc === window.location.href) {
+        return;
+      }
       if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.pelbagaiBridge) {
         window.webkit.messageHandlers.pelbagaiBridge.postMessage({
-          type: 'imageGenerated',
+          type: 'saveImage',
           url: qrSrc
         });
       }

@@ -26,6 +26,7 @@ struct ChatView: View {
     @State private var showFilePicker = false
     @State private var showSkillsSheet = false
     @State private var showSkillImporter = false
+    @State private var shimmerOffset = false
     
     init(sessionId: UUID, initialPrompt: String? = nil, initialSkill: Skill? = nil, env: AppEnvironment) {
         _viewModel = StateObject(wrappedValue: ChatViewModel(sessionId: sessionId, environment: env, initialPrompt: initialPrompt, initialSkill: initialSkill))
@@ -37,6 +38,35 @@ struct ChatView: View {
             
             VStack(spacing: 0) {
                 chatScrollView
+                
+                if viewModel.isLoadingModels {
+                    HStack(spacing: 8) {
+                        Image(systemName: "cpu")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(.orange)
+                        
+                        Text(viewModel.loadingStatusText)
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundColor(.secondary)
+                        
+                        Spacer()
+                        
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .orange))
+                            .scaleEffect(0.6)
+                            .frame(width: 12, height: 12)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 8)
+                    .background(Color.orange.opacity(0.06))
+                    .overlay(
+                        VStack {
+                            Spacer()
+                            shimmerLine
+                        }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
                 
                 VStack(spacing: 12) {
                     ChatInputView(
@@ -60,19 +90,7 @@ struct ChatView: View {
                 .background(.ultraThinMaterial)
             }
             
-            if viewModel.isLoadingModels {
-                ZStack {
-                    Color.black.opacity(0.15)
-                        .ignoresSafeArea()
-                    modelLoadingOverlay
-                }
-                .zIndex(1)
-                .onAppear {
-                    withAnimation(.linear(duration: 2).repeatForever(autoreverses: false)) {
-                        isRotating = true
-                    }
-                }
-            } else if !viewModel.isModelLoaded && !env.gemma.selectedModel.isDownloaded {
+            if !viewModel.isModelLoaded && !env.gemma.selectedModel.isDownloaded {
                 ZStack {
                     Color.black.opacity(0.15)
                         .ignoresSafeArea()
@@ -81,12 +99,10 @@ struct ChatView: View {
                 .zIndex(1)
             }
             
-            if let request = viewModel.clarificationRequest {
-                clarificationOverlay(request)
-            }
+
         }
 #if os(iOS)
-        .sheet(isPresented: $viewModel.showCamera) {
+        .fullScreenCover(isPresented: $viewModel.showCamera) {
             CameraView(image: $viewModel.capturedImage)
         }
 #endif
@@ -172,11 +188,34 @@ struct ChatView: View {
         }
         .task {
             viewModel.loadMessages()
-            await viewModel.loadAllModels()
             withAnimation(.easeInOut(duration: 8.0).repeatForever(autoreverses: true)) {
                 animateGradient.toggle()
             }
+            withAnimation(.linear(duration: 2.0).repeatForever(autoreverses: false)) {
+                shimmerOffset.toggle()
+            }
+            
+            // Introduce transition delay of 400ms to let SwiftUI screen push complete smoothly
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            await viewModel.loadAllModels()
         }
+    }
+    
+    private var shimmerLine: some View {
+        GeometryReader { geo in
+            let width = geo.size.width
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [.clear, .orange, .purple, .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(width: width * 0.3, height: 2)
+                .offset(x: shimmerOffset ? width : -width * 0.3)
+        }
+        .frame(height: 2)
     }
     
     private var spatialBackground: some View {
@@ -314,7 +353,7 @@ struct ChatView: View {
                     }
                     
                     ForEach(viewModel.messages) { message in
-                        ChatBubble(message: message)
+                        ChatBubble(message: message, viewModel: viewModel)
                             .id(message.id)
                     }
                     
@@ -334,6 +373,28 @@ struct ChatView: View {
                             }
                         )
                         .id("toolConfirmation")
+                        .padding(.vertical, 8)
+                    }
+
+                    if let request = viewModel.clarificationRequest {
+                        ConfirmChatItem(
+                            request: ConfirmChatRequest(
+                                headline: "Clarification Needed",
+                                message: request.question,
+                                options: (request.options ?? []).map {
+                                    ConfirmChatOption(title: $0)
+                                },
+                                accentColor: .cyan,
+                                allowsDismiss: true
+                            ),
+                            onSelect: { option in
+                                viewModel.handleClarificationChoice(option.title)
+                            },
+                            onDismiss: {
+                                viewModel.clarificationRequest = nil
+                            }
+                        )
+                        .id("clarification")
                         .padding(.vertical, 8)
                     }
                     
@@ -501,87 +562,7 @@ struct ChatView: View {
         .transition(.opacity.combined(with: .move(edge: .bottom)))
     }
 
-    private func clarificationOverlay(_ request: ClarificationRequest) -> some View {
-        ZStack {
-            Color.black.opacity(0.4)
-                .ignoresSafeArea()
-                .onTapGesture {
-                    viewModel.clarificationRequest = nil
-                }
-            
-            VStack(spacing: 24) {
-                VStack(spacing: 8) {
-                    Image(systemName: "questionmark.circle.fill")
-                        .font(.system(size: 40))
-                        .foregroundStyle(
-                            LinearGradient(colors: [.cyan, .purple], startPoint: .topLeading, endPoint: .bottomTrailing)
-                        )
-                    
-                    Text("Clarification Needed")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
-                }
-                
-                Text(request.question)
-                    .font(.system(size: 16, design: .rounded))
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(.primary.opacity(0.8))
-                    .padding(.horizontal)
-                
-                if let options = request.options, !options.isEmpty {
-                    VStack(spacing: 12) {
-                        ForEach(options, id: \.self) { option in
-                            Button {
-                                viewModel.handleClarificationChoice(option)
-                            } label: {
-                                Text(option)
-                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                    .foregroundColor(.primary)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 14)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                            .fill(Color.primary.opacity(0.06))
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                                    .stroke(Color.primary.opacity(0.1), lineWidth: 1)
-                                            )
-                                    )
-                            }
-                        }
-                    }
-                    .padding(.horizontal)
-                } else {
-                    Button {
-                        viewModel.clarificationRequest = nil
-                    } label: {
-                        Text("I'll provide more info")
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .fill(Color.primary)
-                            )
-                    }
-                    .padding(.horizontal)
-                }
-            }
-            .padding(.vertical, 32)
-            .padding(.horizontal, 24)
-            .background(
-                RoundedRectangle(cornerRadius: 32, style: .continuous)
-                    .fill(.ultraThinMaterial)
-                    .shadow(color: Color.black.opacity(0.2), radius: 30, x: 0, y: 15)
-            )
-            .padding(.horizontal, 40)
-            .transition(.asymmetric(
-                insertion: .scale(scale: 0.9).combined(with: .opacity),
-                removal: .scale(scale: 1.1).combined(with: .opacity)
-            ))
-        }
-        .zIndex(10)
-    }
+    // clarificationOverlay removed — replaced by inline ConfirmChatItem in chat scroll
 
 }
 
@@ -600,20 +581,22 @@ private enum ToolDefinitionError: LocalizedError {
 
 struct ChatBubble: View {
     let message: ChatMessage
+    @ObservedObject var viewModel: ChatViewModel
     @Environment(\.colorScheme) var colorScheme
+    
+    private func getAttachmentAbsoluteURL(localPath: String) -> URL? {
+        let fileManager = FileManager.default
+        guard let documentsURL = try? fileManager.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true) else { return nil }
+        return documentsURL.appendingPathComponent("Attachments").appendingPathComponent(localPath)
+    }
     
     var body: some View {
         HStack {
             if message.role == .user { Spacer(minLength: 40) }
             
             VStack(alignment: message.role == .user ? .trailing : .leading, spacing: 6) {
-                // Generic Attachments
-                if !message.attachments.isEmpty {
-                    ForEach(message.attachments) { attachment in
-                        FileAttachmentView(attachment: attachment)
-                            .padding(.bottom, 4)
-                    }
-                } else if message.content == "[Audio Message]" {
+                // Text/Waveform Content
+                if message.content == "[Audio Message]" {
                     Label("Voice message", systemImage: "waveform")
                         .font(.system(size: 15, weight: .medium, design: .rounded))
                         .foregroundColor(.primary)
@@ -631,7 +614,7 @@ struct ChatBubble: View {
                                         .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                                 )
                         )
-                } else {
+                } else if message.content != "[Image Message]" && !message.content.isEmpty {
                     MarkdownContentView(text: message.content)
                         .foregroundColor(.primary)
                         .padding(.horizontal, 16)
@@ -652,6 +635,33 @@ struct ChatBubble: View {
                                 )
                                 .shadow(color: message.role == .user ? Color.primary.opacity(0.05) : Color.clear, radius: 10, x: 0, y: 5)
                         )
+                }
+                
+                // Generic and Skill HTML Attachments
+                if !message.attachments.isEmpty {
+                    ForEach(message.attachments) { attachment in
+                        if attachment.fileType.lowercased() == "html",
+                           let absoluteURL = getAttachmentAbsoluteURL(localPath: attachment.localPath) {
+                            if attachment.extractedText == "[AI Canvas Micro-App]" {
+                                CanvasBlockView(
+                                    localFileURL: absoluteURL,
+                                    messageId: message.id,
+                                    viewModel: viewModel
+                                )
+                                .padding(.top, 4)
+                            } else {
+                                SkillWebViewBlock(
+                                    localFileURL: absoluteURL,
+                                    messageId: message.id,
+                                    viewModel: viewModel
+                                )
+                                .padding(.top, 4)
+                            }
+                        } else {
+                            FileAttachmentView(attachment: attachment)
+                                .padding(.top, 4)
+                        }
+                    }
                 }
                 
                 if let imageData = message.imageData {

@@ -12,6 +12,7 @@ class SettingsViewModel: ObservableObject {
     @Published var isDownloading: Bool = false
     @Published var downloadingModel: GemmaModel?
     @Published var downloadProgress: Double = 0
+    @Published var systemCapabilities: [SystemCapabilityDescriptor] = []
     
     @Published var showDownloadWarning = false
     @Published var pendingModel: GemmaModel?
@@ -22,6 +23,7 @@ class SettingsViewModel: ObservableObject {
         self.environment = environment
         self.selectedModel = environment.gemma.selectedModel
         self.preferredBackend = environment.mlx.preferredBackend
+        self.systemCapabilities = environment.plugins.capabilityDescriptors
         
         setupBindings()
     }
@@ -61,6 +63,74 @@ class SettingsViewModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] in self?.downloadingModel = $0 }
             .store(in: &cancellables)
+
+        environment.plugins.capabilitySettings.$disabledCapabilityKeys
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
+    }
+
+    func isCapabilityEnabled(_ descriptor: SystemCapabilityDescriptor) -> Bool {
+        environment.plugins.capabilitySettings.isEnabled(
+            pluginID: descriptor.pluginID,
+            capabilityID: descriptor.capabilityID
+        )
+    }
+
+    func setCapability(_ descriptor: SystemCapabilityDescriptor, enabled: Bool) {
+        environment.plugins.capabilitySettings.setEnabled(
+            enabled,
+            pluginID: descriptor.pluginID,
+            capabilityID: descriptor.capabilityID
+        )
+    }
+
+    var groupedSystemCapabilities: [SystemCapabilityGroup] {
+        groupedSystemCapabilities(matching: "")
+    }
+
+    func groupedSystemCapabilities(matching query: String) -> [SystemCapabilityGroup] {
+        let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let allGrouped = Dictionary(grouping: systemCapabilities) { $0.pluginID }
+        let visibleCapabilities: [SystemCapabilityDescriptor]
+
+        if normalizedQuery.isEmpty {
+            visibleCapabilities = systemCapabilities
+        } else {
+            visibleCapabilities = systemCapabilities.filter { descriptor in
+                [
+                    descriptor.pluginDisplayName,
+                    descriptor.capabilityDisplayName,
+                    descriptor.description,
+                    descriptor.pluginID,
+                    descriptor.capabilityID
+                ]
+                .contains { $0.lowercased().contains(normalizedQuery) }
+            }
+        }
+
+        let visibleGrouped = Dictionary(grouping: visibleCapabilities) { $0.pluginID }
+        return visibleGrouped.map { pluginID, capabilities in
+            let sorted = capabilities.sorted { $0.capabilityDisplayName < $1.capabilityDisplayName }
+            let allPluginCapabilities = allGrouped[pluginID] ?? sorted
+            let enabled = allPluginCapabilities.filter { isCapabilityEnabled($0) }.count
+            return SystemCapabilityGroup(
+                pluginID: pluginID,
+                displayName: sorted.first?.pluginDisplayName ?? pluginID,
+                enabledCount: enabled,
+                totalCount: allPluginCapabilities.count,
+                capabilities: sorted
+            )
+        }
+        .sorted { $0.displayName < $1.displayName }
+    }
+
+    var systemCapabilitiesSummary: String {
+        let total = systemCapabilities.count
+        let enabled = systemCapabilities.filter { isCapabilityEnabled($0) }.count
+        return "\(enabled) of \(total) enabled"
     }
     
     func switchModel(to model: GemmaModel) {

@@ -258,7 +258,7 @@ class ChatViewModel: ObservableObject {
                         let responseText = await self.processActiveSkillTurn(transcript, activeSkill: activeSkill, history: conversationContext)
                         await MainActor.run {
                             self.isGenerating = false
-                            self.completeGeneration(responseText)
+                            self.completeGeneration(responseText, activeSkill: activeSkill)
                             if self.messages.count <= 2 {
                                 Task {
                                     await self.performTitleUpdate(for: transcript)
@@ -420,16 +420,22 @@ class ChatViewModel: ObservableObject {
                 
                 await MainActor.run {
                     self.isGenerating = true
+                    self.detectAndActivateCanvasSkillIfNeeded(text: text, history: conversationContext)
                 }
                 
                 if let activeSkill = await MainActor.run { self.activeSkill } {
                     await MainActor.run {
                         self.environment.skills.recordSkillUsed(activeSkill)
                     }
-                    let responseText = await self.processActiveSkillTurn(text, activeSkill: activeSkill, history: conversationContext)
+                    let responseText: String
+                    if activeSkill.capabilities.contains(.canvas) {
+                        responseText = await self.processCanvasTurn(text, activeSkill: activeSkill, history: conversationContext)
+                    } else {
+                        responseText = await self.processActiveSkillTurn(text, activeSkill: activeSkill, history: conversationContext)
+                    }
                     await MainActor.run {
                         self.isGenerating = false
-                        self.completeGeneration(responseText)
+                        self.completeGeneration(responseText, activeSkill: activeSkill)
                         
                         // If this is the first message, generate a title
                         if self.messages.count <= 2 {
@@ -496,22 +502,71 @@ class ChatViewModel: ObservableObject {
         }
     }
     
-    private func completeGeneration(_ responseText: String) {
+    private func completeGeneration(_ responseText: String, activeSkill: Skill? = nil) {
+        var attachmentsData: Data? = nil
+        var finalResponseText = responseText
+        
+        if let activeSkill = activeSkill {
+            if activeSkill.capabilities.contains(.canvas) {
+                if let html = extractHTML(from: responseText) {
+                    do {
+                        // Extract a nice app name for filename
+                        var appName = activeSkill.name
+                        if let titleRange = html.range(of: "<title>", options: .caseInsensitive),
+                           let endTitleRange = html.range(of: "</title>", options: .caseInsensitive, range: titleRange.upperBound..<html.endIndex) {
+                            let extracted = html[titleRange.upperBound..<endTitleRange.lowerBound]
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            if !extracted.isEmpty {
+                                appName = extracted.replacingOccurrences(of: " ", with: "_").lowercased()
+                            }
+                        }
+                        
+                        let filename = try self.saveHTMLAttachmentToStorage(htmlContent: html)
+                        let attachment = ChatAttachment(
+                            id: UUID(),
+                            filename: "\(appName).html",
+                            fileType: "html",
+                            localPath: filename,
+                            extractedText: "[AI Canvas Micro-App]"
+                        )
+                        attachmentsData = try JSONEncoder().encode([attachment])
+                        finalResponseText = cleanResponseText(responseText)
+                    } catch {
+                        print("⚠️ [ChatVM] Failed to save generated HTML attachment: \(error)")
+                    }
+                }
+            } else if let html = activeSkill.htmlContent {
+                do {
+                    let filename = try self.saveHTMLAttachmentToStorage(htmlContent: html)
+                    let attachment = ChatAttachment(
+                        id: UUID(),
+                        filename: "\(activeSkill.name)_snapshot.html",
+                        fileType: "html",
+                        localPath: filename,
+                        extractedText: "[HTML Snapshot of Skill Output]"
+                    )
+                    attachmentsData = try JSONEncoder().encode([attachment])
+                } catch {
+                    print("⚠️ [ChatVM] Failed to save initial HTML attachment: \(error)")
+                }
+            }
+        }
+        
         let aiMessage = ChatMessage(
             id: UUID(),
             sessionId: sessionId,
             role: .assistant,
-            content: responseText,
+            content: finalResponseText,
             imageData: nil,
-            attachmentsData: nil,
+            attachmentsData: attachmentsData,
             timestamp: Date()
         )
         messages.append(aiMessage)
         environment.database.addMessage(aiMessage)
         
         let ttsEnabled = UserDefaults.standard.bool(forKey: "ttsEnabled")
-        if ttsEnabled && !responseText.isEmpty {
-            environment.speech.speak(responseText)
+        if ttsEnabled && !finalResponseText.isEmpty {
+            environment.speech.speak(finalResponseText)
         }
     }
     
@@ -814,7 +869,14 @@ class ChatViewModel: ObservableObject {
     
     private func processActiveSkillTurn(_ text: String, activeSkill: Skill, history: [ChatMessage]) async -> String {
         let brevityInstruction = "\n\nIMPORTANT: Keep your response extremely brief, direct, and concise (at most 1 or 2 sentences). Do not do too much talking. Focus strictly on getting to the point and displaying the result."
-        let systemPrompt = activeSkill.instructions + brevityInstruction
+        var systemPrompt = activeSkill.resolvedInstructions + brevityInstruction
+        if activeSkill.htmlContent != nil {
+            if activeSkill.name == "query-wikipedia" {
+                systemPrompt += "\n\nIMPORTANT: You must include a valid JSON block containing the exact, canonical Wikipedia topic/article name to search, e.g., {\"topic\": \"Quantum computing\"} or {\"topic\": \"Albert Einstein\"}. Make sure the JSON block is complete."
+            } else {
+                systemPrompt += "\n\nIMPORTANT: You must include a valid JSON block containing the result/target text for the interactive view, e.g., {\"text\": \"your_result_here\"} or {\"url\": \"http://example.com\"}. Make sure the JSON block is complete."
+            }
+        }
         var messages: [[String: String]] = [
             ["role": "system", "content": systemPrompt]
         ]
@@ -838,6 +900,111 @@ class ChatViewModel: ObservableObject {
             messages: messages,
             statusText: "Thinking with \(activeSkill.displayName)..."
         )
+    }
+    
+    private func processCanvasTurn(_ text: String, activeSkill: Skill, history: [ChatMessage]) async -> String {
+        // 1. Check if we are iterating on an existing canvas
+        // Search history backwards for an assistant message with an HTML attachment
+        var existingHtml: String? = nil
+        for msg in history.reversed() {
+            if msg.role == .assistant,
+               let attachment = msg.attachments.first(where: { $0.fileType.lowercased() == "html" }) {
+                // Read the HTML content from attachments folder
+                let fileManager = FileManager.default
+                if let documentsURL = try? fileManager.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: false) {
+                    let fileURL = documentsURL.appendingPathComponent("Attachments").appendingPathComponent(attachment.localPath)
+                    if let content = try? String(contentsOf: fileURL, encoding: .utf8) {
+                        existingHtml = content
+                        break
+                    }
+                }
+            }
+        }
+        
+        let systemPrompt: String
+        if let existing = existingHtml {
+            // Build prompt for iteration
+            systemPrompt = CanvasPromptBuilder.buildIterationPrompt(request: text, existingHtml: existing)
+        } else {
+            // Build base system prompt for initial generation
+            systemPrompt = CanvasPromptBuilder.buildSystemPrompt()
+        }
+        
+        var messages: [[String: String]] = [
+            ["role": "system", "content": systemPrompt]
+        ]
+        
+        // Add chat history (up to last 8 messages) to maintain context
+        for msg in history.suffix(8) {
+            let content = msg.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !content.isEmpty else { continue }
+            switch msg.role {
+            case .user:
+                messages.append(["role": "user", "content": content])
+            case .assistant:
+                // Strip large HTML code blocks from assistant history to save token space and prevent model confusion
+                let cleanedContent = cleanResponseText(content)
+                messages.append(["role": "model", "content": cleanedContent])
+            case .system:
+                continue
+            }
+        }
+        
+        messages.append(["role": "user", "content": text])
+        
+        return await environment.gemma.generateText(
+            messages: messages,
+            statusText: existingHtml != nil ? "Updating Canvas..." : "Building Canvas..."
+        )
+    }
+    
+    private func extractHTML(from text: String) -> String? {
+        return CanvasParser.extractHTML(from: text)
+    }
+    
+    private func cleanResponseText(_ text: String) -> String {
+        return CanvasParser.cleanResponseText(text)
+    }
+    
+    private func detectAndActivateCanvasSkillIfNeeded(text: String, history: [ChatMessage]) {
+        // If already in a canvas skill, no need to auto-activate
+        if let active = activeSkill, active.capabilities.contains(.canvas) {
+            return
+        }
+        
+        let normalized = text.lowercased()
+        
+        // 1. Initial generation intent keywords
+        let generationKeywords = [
+            "build me", "build an app", "create an app", "make an app", "design an app",
+            "create a calculator", "build a calculator", "make a calculator",
+            "create a timer", "build a timer", "make a timer",
+            "create a game", "build a game", "make a game",
+            "create a pos", "build a pos", "make a pos",
+            "generate a canvas", "generate an app", "build a modern app"
+        ]
+        
+        var hasCanvasIntent = generationKeywords.contains { normalized.contains($0) }
+        
+        // 2. Iteration intent: if there's an existing canvas in the history, and user is asking to modify/add/change/fix it
+        if !hasCanvasIntent {
+            let hasExistingCanvas = history.contains { msg in
+                msg.role == .assistant && msg.attachments.contains { $0.fileType.lowercased() == "html" && $0.extractedText == "[AI Canvas Micro-App]" }
+            }
+            if hasExistingCanvas {
+                let iterationKeywords = [
+                    "add", "change", "fix", "update", "modify", "remove", "button", "reset", "style", "color", "layout", "mode", "toggle", "increase", "decrease"
+                ]
+                hasCanvasIntent = iterationKeywords.contains { normalized.contains($0) } || normalized.count < 60
+            }
+        }
+        
+        if hasCanvasIntent {
+            if let canvasSkill = environment.skills.skill(byID: "canvas-app-builder") {
+                print("🎨 [ChatVM] Auto-activating Canvas App Builder skill")
+                self.activeSkill = canvasSkill
+            }
+        }
     }
     
     func importSkill(from url: URL) {

@@ -82,13 +82,13 @@ struct StoragePlugin: NativePlugin {
             return NativePluginResult(summary: fileList.isEmpty ? "No files in documents." : "Files:\n\(fileList)")
         case "read_file":
             let filename = arguments["filename"] ?? ""
-            let fileURL = documentsURL.appendingPathComponent(filename)
+            let fileURL = try safeDocumentURL(filename: filename)
             let content = try String(contentsOf: fileURL, encoding: .utf8)
             return NativePluginResult(summary: "File content of '\(filename)':\n\(content)", data: ["content": content])
         case "write_file":
             let filename = arguments["filename"] ?? ""
             let content = arguments["content"] ?? ""
-            let fileURL = documentsURL.appendingPathComponent(filename)
+            let fileURL = try safeDocumentURL(filename: filename)
             try content.write(to: fileURL, atomically: true, encoding: .utf8)
             return NativePluginResult(summary: "Successfully wrote to '\(filename)'.")
         case "save_result":
@@ -117,5 +117,17 @@ struct StoragePlugin: NativePlugin {
         default:
             throw NativePluginError.unknownCapability(pluginID: id, capabilityID: capabilityID)
         }
+    }
+
+    private func safeDocumentURL(filename: String) throws -> URL {
+        let trimmed = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = URL(fileURLWithPath: trimmed).lastPathComponent
+        guard !candidate.isEmpty, candidate == trimmed, !candidate.contains("..") else {
+            throw NativePluginError.invalidCapabilityInput(
+                pluginDisplayName: displayName,
+                reason: "file access is limited to a single filename inside app Documents."
+            )
+        }
+        return documentsURL.appendingPathComponent(candidate, isDirectory: false)
     }
 }

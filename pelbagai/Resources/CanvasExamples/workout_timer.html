@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Interval Workout Timer</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #080c14;
+            --primary: #8b5cf6;
+            --primary-glow: rgba(139, 92, 246, 0.3);
+            --state-prep: #f59e0b;
+            --state-work: #10b981;
+            --state-rest: #3b82f6;
+            --text-main: #f3f4f6;
+            --text-muted: #6b7280;
+            --glass-bg: rgba(255, 255, 255, 0.04);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-blur: 24px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            padding: env(safe-area-inset-top, 20px) 24px env(safe-area-inset-bottom, 20px) 24px;
+            transition: background-color 0.5s ease;
+        }
+
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 12px;
+            position: relative;
+        }
+
+        h1 {
+            font-size: 17px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, #fff, #9ca3af);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            gap: 24px;
+            width: 100%;
+            max-width: 400px;
+            margin: 0 auto;
+        }
+
+        /* Settings View */
+        .settings-card {
+            background: var(--glass-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 28px;
+            padding: 24px;
+            width: 100%;
+            backdrop-filter: blur(var(--glass-blur));
+            -webkit-backdrop-filter: blur(var(--glass-blur));
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .settings-header {
+            text-align: center;
+            margin-bottom: 8px;
+        }
+
+        .settings-header h2 {
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .settings-header p {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .input-group {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.2);
+            padding: 10px 16px;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        .input-label {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .input-title {
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .input-sub {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .stepper {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .step-btn {
+            width: 32px;
+            height: 32px;
+            border-radius: 10px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--glass-border);
+            color: var(--text-main);
+            font-size: 18px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        .step-btn:active {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .step-value {
+            font-size: 16px;
+            font-weight: 700;
+            min-width: 36px;
+            text-align: center;
+        }
+
+        .start-btn {
+            background: linear-gradient(135deg, var(--primary), #6366f1);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            padding: 16px;
+            font-size: 16px;
+            font-weight: 700;
+            text-align: center;
+            box-shadow: 0 4px 16px var(--primary-glow);
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-top: 10px;
+        }
+
+        .start-btn:active {
+            transform: scale(0.98);
+            filter: brightness(0.95);
+        }
+
+        /* Active Timer View */
+        .timer-view {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 32px;
+            width: 100%;
+            animation: fadeIn 0.4s ease;
+        }
+
+        /* Circular Progress */
+        .progress-circle {
+            position: relative;
+            width: 260px;
+            height: 260px;
+        }
+
+        .progress-circle svg {
+            width: 100%;
+            height: 100%;
+            transform: rotate(-90deg);
+        }
+
+        .circle-bg {
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.03);
+            stroke-width: 12;
+        }
+
+        .circle-bar {
+            fill: none;
+            stroke: var(--primary);
+            stroke-width: 12;
+            stroke-linecap: round;
+            stroke-dasharray: 753.9; /* 2 * PI * r (r=120) */
+            stroke-dashoffset: 0;
+            transition: stroke-dashoffset 0.1s linear, stroke 0.4s ease;
+        }
+
+        .timer-text-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+        }
+
+        .timer-label {
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            transition: color 0.4s ease;
+        }
+
+        .timer-time {
+            font-size: 64px;
+            font-weight: 800;
+            line-height: 1.1;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .timer-round {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* Controls Panel */
+        .controls-panel {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .ctrl-btn {
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            border: 1px solid var(--glass-border);
+            background: var(--glass-bg);
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            backdrop-filter: blur(8px);
+        }
+
+        .ctrl-btn:active {
+            background: rgba(255, 255, 255, 0.12);
+        }
+
+        .ctrl-btn.play-pause {
+            width: 72px;
+            height: 72px;
+            background: white;
+            color: black;
+            border: none;
+            box-shadow: 0 8px 24px rgba(255, 255, 255, 0.2);
+        }
+
+        .ctrl-btn.play-pause:active {
+            transform: scale(0.96);
+            background: #e5e7eb;
+        }
+
+        .ctrl-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Pulse Timer</h1>
+    </header>
+
+    <div class="container">
+        <!-- Settings View -->
+        <div class="settings-card" id="settingsView">
+            <div class="settings-header">
+                <h2>Configure Intervals</h2>
+                <p>Customize your circuit intervals below</p>
+            </div>
+            
+            <div class="input-group">
+                <div class="input-label">
+                    <span class="input-title">Preparation</span>
+                    <span class="input-sub">Countdown before starting</span>
+                </div>
+                <div class="stepper">
+                    <button class="step-btn" onclick="adjustSetting('prep', -1)">-</button>
+                    <span class="step-value" id="val-prep">5s</span>
+                    <button class="step-btn" onclick="adjustSetting('prep', 1)">+</button>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <div class="input-label">
+                    <span class="input-title">🔥 Work Time</span>
+                    <span class="input-sub">High intensity interval</span>
+                </div>
+                <div class="stepper">
+                    <button class="step-btn" onclick="adjustSetting('work', -5)">-</button>
+                    <span class="step-value" id="val-work">30s</span>
+                    <button class="step-btn" onclick="adjustSetting('work', 5)">+</button>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <div class="input-label">
+                    <span class="input-title">🧊 Rest Time</span>
+                    <span class="input-sub">Recovery interval</span>
+                </div>
+                <div class="stepper">
+                    <button class="step-btn" onclick="adjustSetting('rest', -5)">-</button>
+                    <span class="step-value" id="val-rest">10s</span>
+                    <button class="step-btn" onclick="adjustSetting('rest', 5)">+</button>
+                </div>
+            </div>
+
+            <div class="input-group">
+                <div class="input-label">
+                    <span class="input-title">🔄 Rounds</span>
+                    <span class="input-sub">Total number of cycles</span>
+                </div>
+                <div class="stepper">
+                    <button class="step-btn" onclick="adjustSetting('rounds', -1)">-</button>
+                    <span class="step-value" id="val-rounds">3</span>
+                    <button class="step-btn" onclick="adjustSetting('rounds', 1)">+</button>
+                </div>
+            </div>
+
+            <button class="start-btn" onclick="startWorkout()">Start Workout</button>
+        </div>
+
+        <!-- Active Timer View -->
+        <div class="timer-view" id="timerView">
+            <div class="progress-circle">
+                <svg>
+                    <circle class="circle-bg" cx="130" cy="130" r="120"></circle>
+                    <circle class="circle-bar" id="circleProgress" cx="130" cy="130" r="120"></circle>
+                </svg>
+                <div class="timer-text-container">
+                    <span class="timer-label" id="stateLabel">PREPARE</span>
+                    <span class="timer-time" id="timeDisplay">05</span>
+                    <span class="timer-round" id="roundDisplay">ROUND 1 of 3</span>
+                </div>
+            </div>
+
+            <div class="controls-panel">
+                <button class="ctrl-btn" onclick="stopWorkout()">
+                    <svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                </button>
+                <button class="ctrl-btn play-pause" onclick="togglePlayPause()">
+                    <span id="playPauseIcon">
+                        <svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                    </span>
+                </button>
+                <button class="ctrl-btn" onclick="resetWorkout()">
+                    <svg viewBox="0 0 24 24"><path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/></svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Default timer state
+        let config = {
+            prep: 5,
+            work: 30,
+            rest: 10,
+            rounds: 3
+        };
+
+        let workout = {
+            currentRound: 1,
+            currentState: 'prep', // 'prep', 'work', 'rest', 'completed'
+            timeLeft: 0,
+            totalDuration: 0,
+            timerId: null,
+            isPaused: false
+        };
+
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+        // Adjust settings values
+        function adjustSetting(key, amount) {
+            triggerHaptic('light');
+            if (key === 'rounds' || key === 'prep') {
+                config[key] = Math.max(1, config[key] + amount);
+            } else {
+                config[key] = Math.max(5, config[key] + amount);
+            }
+            document.getElementById(`val-${key}`).innerText = config[key] + (key === 'rounds' ? '' : 's');
+        }
+
+        // Play synthetic beep sound via Web Audio API
+        function playBeep(freq, duration) {
+            try {
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.frequency.value = freq;
+                osc.type = 'sine';
+                gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+                osc.start();
+                osc.stop(audioCtx.currentTime + duration);
+            } catch(e) {
+                console.error("Audio error", e);
+            }
+        }
+
+        // Standard iOS Haptics Handoff
+        function triggerHaptic(style) {
+            if (window.pelbagai && window.pelbagai.ui && window.pelbagai.ui.haptic) {
+                window.pelbagai.ui.haptic(style);
+            }
+        }
+
+        // Start workout loop
+        function startWorkout() {
+            triggerHaptic('heavy');
+            document.getElementById('settingsView').style.display = 'none';
+            document.getElementById('timerView').style.display = 'flex';
+
+            workout.currentRound = 1;
+            workout.currentState = 'prep';
+            workout.timeLeft = config.prep;
+            workout.totalDuration = config.prep;
+            workout.isPaused = false;
+
+            updateUI();
+            tickTimer();
+        }
+
+        function togglePlayPause() {
+            triggerHaptic('medium');
+            workout.isPaused = !workout.isPaused;
+            
+            const btn = document.getElementById('playPauseIcon');
+            if (workout.isPaused) {
+                btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
+            } else {
+                btn.innerHTML = `<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`;
+            }
+        }
+
+        function tickTimer() {
+            workout.timerId = setInterval(() => {
+                if (workout.isPaused) return;
+
+                workout.timeLeft--;
+
+                if (workout.timeLeft <= 3 && workout.timeLeft > 0) {
+                    // countdown beeps and haptics
+                    playBeep(800, 0.15);
+                    triggerHaptic('light');
+                }
+
+                if (workout.timeLeft < 0) {
+                    transitionState();
+                } else {
+                    updateUI();
+                }
+            }, 1000);
+        }
+
+        function transitionState() {
+            if (workout.currentState === 'prep') {
+                // Prep completed -> start Round 1 Work
+                workout.currentState = 'work';
+                workout.timeLeft = config.work;
+                workout.totalDuration = config.work;
+                playBeep(1200, 0.4);
+                triggerHaptic('heavy');
+            } else if (workout.currentState === 'work') {
+                // Work completed -> Rest or Finish
+                if (workout.currentRound < config.rounds) {
+                    workout.currentState = 'rest';
+                    workout.timeLeft = config.rest;
+                    workout.totalDuration = config.rest;
+                    playBeep(600, 0.4);
+                    triggerHaptic('medium');
+                } else {
+                    // Last round finished
+                    completeWorkout();
+                    return;
+                }
+            } else if (workout.currentState === 'rest') {
+                // Rest completed -> Next Round Work
+                workout.currentRound++;
+                workout.currentState = 'work';
+                workout.timeLeft = config.work;
+                workout.totalDuration = config.work;
+                playBeep(1200, 0.4);
+                triggerHaptic('heavy');
+            }
+            updateUI();
+        }
+
+        function completeWorkout() {
+            clearInterval(workout.timerId);
+            workout.currentState = 'completed';
+            workout.timeLeft = 0;
+            playBeep(1500, 0.8);
+            triggerHaptic('heavy');
+            setTimeout(() => { triggerHaptic('heavy'); }, 200);
+
+            if (window.pelbagai && window.pelbagai.ui) {
+                window.pelbagai.ui.alert("Workout Finished!", "Fantastic effort! You've successfully completed the training circuit.", ["Awesome!"])
+                    .then(() => {
+                        stopWorkout();
+                    });
+            } else {
+                alert("Workout Finished! Outstanding job!");
+                stopWorkout();
+            }
+        }
+
+        function stopWorkout() {
+            triggerHaptic('heavy');
+            clearInterval(workout.timerId);
+            document.getElementById('timerView').style.display = 'none';
+            document.getElementById('settingsView').style.display = 'flex';
+            document.body.style.backgroundColor = 'var(--bg-color)';
+        }
+
+        function resetWorkout() {
+            triggerHaptic('medium');
+            clearInterval(workout.timerId);
+            startWorkout();
+        }
+
+        function updateUI() {
+            const timeDisplay = document.getElementById('timeDisplay');
+            const stateLabel = document.getElementById('stateLabel');
+            const roundDisplay = document.getElementById('roundDisplay');
+            const progressBar = document.getElementById('circleProgress');
+
+            // Format time
+            const m = Math.floor(workout.timeLeft / 60);
+            const s = workout.timeLeft % 60;
+            timeDisplay.innerText = `${m > 0 ? m + ':' : ''}${s < 10 ? '0' : ''}${s}`;
+
+            // State adjustments
+            if (workout.currentState === 'prep') {
+                document.body.style.backgroundColor = '#1e1b12'; // Subtle amber dark
+                stateLabel.innerText = 'PREPARE';
+                stateLabel.style.color = 'var(--state-prep)';
+                progressBar.style.stroke = 'var(--state-prep)';
+            } else if (workout.currentState === 'work') {
+                document.body.style.backgroundColor = '#061c14'; // Subtle green dark
+                stateLabel.innerText = '🔥 WORK';
+                stateLabel.style.color = 'var(--state-work)';
+                progressBar.style.stroke = 'var(--state-work)';
+            } else if (workout.currentState === 'rest') {
+                document.body.style.backgroundColor = '#08172c'; // Subtle blue dark
+                stateLabel.innerText = '🧊 REST';
+                stateLabel.style.color = 'var(--state-rest)';
+                progressBar.style.stroke = 'var(--state-rest)';
+            }
+
+            roundDisplay.innerText = `ROUND ${workout.currentRound} OF ${config.rounds}`;
+
+            // Handle circle path animation
+            const progress = workout.totalDuration > 0 ? (workout.timeLeft / workout.totalDuration) : 0;
+            const strokeOffset = 753.9 * (1 - progress);
+            progressBar.style.strokeDashoffset = strokeOffset;
+        }
+    </script>
+</body>
+</html>

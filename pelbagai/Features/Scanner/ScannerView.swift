@@ -90,7 +90,7 @@ struct ScannerView: View {
             }
         }
 #if os(iOS)
-        .sheet(isPresented: $viewModel.showCamera) {
+        .fullScreenCover(isPresented: $viewModel.showCamera) {
             CameraView(image: $viewModel.capturedImage)
         }
 #endif

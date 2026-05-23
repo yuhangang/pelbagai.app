@@ -4,6 +4,7 @@ import Combine
 @MainActor
 class HomeViewModel: ObservableObject {
     @Published var recentSessions: [ChatSession] = []
+    @Published var canvasApps: [CanvasAppInfo] = []
     @Published var chatSearchText: String = ""
     @Published var chatInputMode: ChatInputMode = .chat
     @Published var pendingImage: UIImage? = nil
@@ -71,6 +72,7 @@ class HomeViewModel: ObservableObject {
     
     func loadData() {
         recentSessions = environment.database.getAllSessions()
+        canvasApps = environment.database.getAllCanvasApps()
     }
     
     func registerSkill(_ skill: Skill) {

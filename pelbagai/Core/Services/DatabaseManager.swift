@@ -21,6 +21,14 @@ struct ChatAttachment: Identifiable, Hashable, Codable {
     let extractedText: String?
 }
 
+struct CanvasAppInfo: Identifiable, Hashable, Codable {
+    let id: UUID
+    let title: String
+    let localPath: String
+    let sessionId: UUID
+    let timestamp: Date
+}
+
 struct ChatMessage: Identifiable, Hashable, Codable, FetchableRecord, PersistableRecord {
     let id: UUID
     let sessionId: UUID
@@ -386,5 +394,95 @@ class DatabaseManager {
             print("Error getting agent memories: \(error)")
             return []
         }
+    }
+    
+    // MARK: - Canvas Apps
+    
+    func getAllCanvasApps() -> [CanvasAppInfo] {
+        var apps: [CanvasAppInfo] = []
+        
+        // 1. Load pre-bundled default Canvas Examples
+        let defaultExamples = [
+            (id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!, filename: "pos_terminal", title: "Sleek POS Terminal"),
+            (id: UUID(uuidString: "44444444-4444-4444-4444-444444444444")!, filename: "kitchen_timer", title: "Kitchen Timers"),
+            (id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!, filename: "workout_timer", title: "Interval Workout Timer"),
+            (id: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!, filename: "reaction_game", title: "Reaction Color Game")
+        ]
+        
+        for example in defaultExamples {
+            // Check if it exists in the bundle (we don't strictly require it to exist to append it, but it's a safe validation)
+            let hasResource = Bundle.main.url(forResource: example.filename, withExtension: "html") != nil ||
+                              Bundle.main.url(forResource: example.filename, withExtension: "html", subdirectory: "CanvasExamples") != nil
+            
+            if hasResource {
+                apps.append(CanvasAppInfo(
+                    id: example.id,
+                    title: example.title,
+                    localPath: "bundle:\(example.filename)",
+                    sessionId: UUID(uuidString: "00000000-0000-0000-0000-000000000000")!, // Special dummy session ID
+                    timestamp: Date(timeIntervalSince1970: 0) // Past date so they go to the bottom/end of descending order
+                ))
+            } else {
+                // If not in bundle yet (e.g. before compilation sync), still append as a safe placeholder
+                apps.append(CanvasAppInfo(
+                    id: example.id,
+                    title: example.title,
+                    localPath: "bundle:\(example.filename)",
+                    sessionId: UUID(uuidString: "00000000-0000-0000-0000-000000000000")!,
+                    timestamp: Date(timeIntervalSince1970: 0)
+                ))
+            }
+        }
+        
+        do {
+            let messages: [ChatMessage] = try dbQueue.read { db in
+                try ChatMessage
+                    .filter(ChatMessage.Columns.attachmentsData != nil)
+                    .order(ChatMessage.Columns.timestamp.desc)
+                    .fetchAll(db)
+            }
+            
+            let fileManager = FileManager.default
+            let documentsURL = try fileManager.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            let attachmentsDirectory = documentsURL.appendingPathComponent("Attachments", isDirectory: true)
+            
+            for msg in messages {
+                for attachment in msg.attachments {
+                    if attachment.fileType.lowercased() == "html" && attachment.extractedText == "[AI Canvas Micro-App]" {
+                        let fileURL = attachmentsDirectory.appendingPathComponent(attachment.localPath)
+                        guard fileManager.fileExists(atPath: fileURL.path) else { continue }
+                        
+                        // Extract title dynamically
+                        var appTitle = attachment.filename.replacingOccurrences(of: ".html", with: "")
+                        if let htmlContent = try? String(contentsOf: fileURL, encoding: .utf8) {
+                            if let titleRange = htmlContent.range(of: "<title>", options: .caseInsensitive),
+                               let endTitleRange = htmlContent.range(of: "</title>", options: .caseInsensitive, range: titleRange.upperBound..<htmlContent.endIndex) {
+                                let extracted = htmlContent[titleRange.upperBound..<endTitleRange.lowerBound]
+                                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                                if !extracted.isEmpty {
+                                    appTitle = extracted
+                                }
+                            }
+                        }
+                        
+                        // Prevent duplicates in case multiple messages reference the exact same file
+                        if !apps.contains(where: { $0.localPath == attachment.localPath }) {
+                            apps.append(CanvasAppInfo(
+                                id: attachment.id,
+                                title: appTitle,
+                                localPath: attachment.localPath,
+                                sessionId: msg.sessionId,
+                                timestamp: msg.timestamp
+                            ))
+                        }
+                    }
+                }
+            }
+        } catch {
+            print("Error fetching all canvas apps: \(error)")
+        }
+        
+        // Sort: user generated apps (recent timestamps) first, then bundled default apps at the end
+        return apps.sorted(by: { $0.timestamp > $1.timestamp })
     }
 }

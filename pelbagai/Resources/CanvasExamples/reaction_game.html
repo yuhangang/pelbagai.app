@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Reaction Color Game</title>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #060913;
+            --primary: #ec4899;
+            --primary-glow: rgba(236, 72, 153, 0.3);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --state-idle: #312e81;
+            --state-wait: #d97706;
+            --state-tap: #10b981;
+            --state-fail: #ef4444;
+            --glass-bg: rgba(255, 255, 255, 0.04);
+            --glass-border: rgba(255, 255, 255, 0.08);
+            --glass-blur: 24px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            padding: env(safe-area-inset-top, 20px) 24px env(safe-area-inset-bottom, 20px) 24px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 4px;
+            z-index: 10;
+        }
+
+        h1 {
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            background: linear-gradient(135deg, #fff, var(--text-muted));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .score-board {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--primary);
+            background: rgba(236, 72, 153, 0.12);
+            border: 1px solid rgba(236, 72, 153, 0.2);
+            padding: 6px 12px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .game-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            margin-bottom: 24px;
+        }
+
+        /* Large Interactive Touch Area */
+        .tap-board {
+            width: 100%;
+            max-width: 320px;
+            height: 320px;
+            border-radius: 40px;
+            border: 2px solid var(--glass-border);
+            background: var(--glass-bg);
+            backdrop-filter: blur(var(--glass-blur));
+            -webkit-backdrop-filter: blur(var(--glass-blur));
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .tap-board:active {
+            transform: scale(0.96);
+        }
+
+        .tap-board.wait {
+            background-color: rgba(217, 119, 6, 0.15);
+            border-color: rgba(217, 119, 6, 0.3);
+            box-shadow: 0 0 40px rgba(217, 119, 6, 0.15);
+        }
+
+        .tap-board.tap {
+            background-color: rgba(16, 185, 129, 0.25);
+            border-color: rgba(16, 185, 129, 0.5);
+            box-shadow: 0 0 50px rgba(16, 185, 129, 0.3);
+        }
+
+        .tap-board.fail {
+            background-color: rgba(239, 68, 68, 0.2);
+            border-color: rgba(239, 68, 68, 0.4);
+        }
+
+        .game-emoji {
+            font-size: 56px;
+            animation: bounce 2s infinite;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .game-instruction {
+            font-size: 16px;
+            font-weight: 700;
+            text-align: center;
+            padding: 0 24px;
+            line-height: 1.4;
+        }
+
+        .game-sub {
+            font-size: 12px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        /* Results Screen */
+        .results-panel {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            width: 100%;
+            max-width: 320px;
+            animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .result-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-muted);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .result-score {
+            font-size: 54px;
+            font-weight: 800;
+            color: #ffffff;
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+        }
+
+        .result-unit {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .result-message {
+            font-size: 14px;
+            color: var(--text-muted);
+            text-align: center;
+            margin-bottom: 8px;
+        }
+
+        .action-row {
+            display: flex;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .action-btn {
+            flex: 1;
+            background: rgba(255,255,255,0.06);
+            border: 1px solid var(--glass-border);
+            color: var(--text-main);
+            padding: 14px;
+            border-radius: 16px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .action-btn:active {
+            transform: scale(0.97);
+            background: rgba(255,255,255,0.12);
+        }
+
+        .action-btn.primary {
+            background: linear-gradient(135deg, var(--primary), #ec4899);
+            border: none;
+            color: white;
+            box-shadow: 0 4px 16px var(--primary-glow);
+        }
+
+        .action-btn.primary:active {
+            filter: brightness(0.9);
+        }
+
+        .best-score-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Reflex Test</h1>
+        <div class="score-board">
+            <span>🏆 Best:</span>
+            <span id="bestScoreText">--- ms</span>
+        </div>
+    </header>
+
+    <div class="game-area">
+        <!-- Interactive Tap Board -->
+        <div class="tap-board" id="tapBoard" onclick="handleBoardClick()">
+            <div class="game-emoji" id="gameEmoji">⚡</div>
+            <div class="game-instruction" id="gameInstruction">Tap here to start reflex check</div>
+            <div class="game-sub" id="gameSub">Wait for the screen to turn green, then tap as fast as you can!</div>
+        </div>
+
+        <!-- Results Display -->
+        <div class="results-panel" id="resultsPanel">
+            <span class="result-title">Reaction Time</span>
+            <div class="result-score">
+                <span id="reactionTimeText">0</span>
+                <span class="result-unit">ms</span>
+            </div>
+            <div class="result-message" id="resultMessage">Excellent reflexes! You're extremely fast!</div>
+            
+            <div class="action-row">
+                <button class="action-btn" onclick="shareScore()">
+                    <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v14"/>
+                    </svg>
+                    Share
+                </button>
+                <button class="action-btn primary" onclick="resetGame()">Retry</button>
+            </div>
+            <span class="best-score-meta" id="bestScoreDate"></span>
+        </div>
+    </div>
+
+    <script>
+        let gameState = 'idle'; // 'idle', 'waiting', 'tappable', 'result'
+        let timerStart = 0;
+        let timeoutId = null;
+        let bestReaction = 99999; // In milliseconds
+
+        // Safe haptic helper
+        function triggerHaptic(style) {
+            if (window.pelbagai && window.pelbagai.ui && window.pelbagai.ui.haptic) {
+                window.pelbagai.ui.haptic(style);
+            }
+        }
+
+        // On App Boot
+        window.addEventListener('pelbagaiReady', initStorage);
+        // Fallback for standard browsers
+        setTimeout(() => {
+            if (gameState === 'idle') initStorage();
+        }, 200);
+
+        function initStorage() {
+            if (window.pelbagai && window.pelbagai.storage) {
+                window.pelbagai.storage.load('best_reaction')
+                    .then(val => {
+                        if (val && !isNaN(val)) {
+                            bestReaction = parseInt(val);
+                            document.getElementById('bestScoreText').innerText = bestReaction + ' ms';
+                        }
+                    })
+                    .catch(err => console.error("Storage error", err));
+            }
+        }
+
+        function handleBoardClick() {
+            if (gameState === 'idle') {
+                startGame();
+            } else if (gameState === 'waiting') {
+                triggerHaptic('heavy');
+                triggerEarlyTap();
+            } else if (gameState === 'tappable') {
+                triggerSuccessTap();
+            }
+        }
+
+        function startGame() {
+            triggerHaptic('light');
+            gameState = 'waiting';
+            
+            const board = document.getElementById('tapBoard');
+            board.className = 'tap-board wait';
+            
+            document.getElementById('gameEmoji').innerText = '⏳';
+            document.getElementById('gameInstruction').innerText = 'WAIT FOR GREEN...';
+            document.getElementById('gameSub').innerText = 'Do not tap yet!';
+
+            // Random delay between 1.8s and 4.5s
+            const delay = 1800 + Math.random() * 2700;
+            timeoutId = setTimeout(() => {
+                triggerTappableState();
+            }, delay);
+        }
+
+        function triggerTappableState() {
+            gameState = 'tappable';
+            timerStart = performance.now();
+            
+            const board = document.getElementById('tapBoard');
+            board.className = 'tap-board tap';
+            
+            document.getElementById('gameEmoji').innerText = '🔥';
+            document.getElementById('gameInstruction').innerText = 'TAP NOW!';
+            document.getElementById('gameSub').innerText = 'Tapppppp!';
+        }
+
+        function triggerEarlyTap() {
+            clearTimeout(timeoutId);
+            gameState = 'result';
+            
+            const board = document.getElementById('tapBoard');
+            board.className = 'tap-board fail';
+            
+            document.getElementById('gameEmoji').innerText = '⚠️';
+            document.getElementById('gameInstruction').innerText = 'TOO EARLY!';
+            document.getElementById('gameSub').innerText = 'You tapped before the screen turned green.';
+            
+            setTimeout(() => {
+                resetGame();
+            }, 1800);
+        }
+
+        function triggerSuccessTap() {
+            const reactionTime = Math.round(performance.now() - timerStart);
+            gameState = 'result';
+            triggerHaptic('heavy');
+            
+            // Hide tap board, show results
+            document.getElementById('tapBoard').style.display = 'none';
+            document.getElementById('resultsPanel').style.display = 'flex';
+            document.getElementById('reactionTimeText').innerText = reactionTime;
+
+            // Generate fun rating message
+            let msg = '';
+            if (reactionTime < 180) {
+                msg = '⚡ Incredible! Godlike reflexes! You possess extreme speed.';
+            } else if (reactionTime < 240) {
+                msg = '🚀 Blazing fast! Excellent reaction speeds.';
+            } else if (reactionTime < 320) {
+                msg = '👌 Good reflexes! Healthy, average reaction speed.';
+            } else {
+                msg = '💤 Keeping it steady! Try again to see if you can beat this time.';
+            }
+            document.getElementById('resultMessage').innerText = msg;
+
+            // Update best score
+            if (reactionTime < bestReaction) {
+                bestReaction = reactionTime;
+                document.getElementById('bestScoreText').innerText = bestReaction + ' ms';
+                
+                // Save persistently
+                if (window.pelbagai && window.pelbagai.storage) {
+                    window.pelbagai.storage.save('best_reaction', String(bestReaction));
+                }
+                
+                // Native toast
+                if (window.pelbagai && window.pelbagai.ui) {
+                    window.pelbagai.ui.toast("New High Score! 🏆");
+                }
+            }
+        }
+
+        function shareScore() {
+            triggerHaptic('medium');
+            const scoreVal = document.getElementById('reactionTimeText').innerText;
+            const text = `⚡ My reaction time is ${scoreVal} ms in the Pelbagai Reflex Game! Can you beat my high score of ${bestReaction} ms?`;
+            
+            if (window.pelbagai && window.pelbagai.share) {
+                window.pelbagai.share.show(text)
+                    .then(res => {
+                        console.log("Shared successfully", res);
+                    })
+                    .catch(err => console.error("Share error", err));
+            } else {
+                alert("Score copied to clipboard:\n\n" + text);
+                navigator.clipboard.writeText(text);
+            }
+        }
+
+        function resetGame() {
+            triggerHaptic('light');
+            gameState = 'idle';
+            
+            document.getElementById('resultsPanel').style.display = 'none';
+            
+            const board = document.getElementById('tapBoard');
+            board.style.display = 'flex';
+            board.className = 'tap-board';
+            
+            document.getElementById('gameEmoji').innerText = '⚡';
+            document.getElementById('gameInstruction').innerText = 'Tap here to start reflex check';
+            document.getElementById('gameSub').innerText = 'Wait for the screen to turn green, then tap as fast as you can!';
+        }
+    </script>
+</body>
+</html>

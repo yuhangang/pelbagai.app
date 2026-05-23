@@ -285,7 +285,7 @@ struct SkillRowCard: View {
                         .foregroundColor(.secondary)
                     
                     ScrollView {
-                        Text(skill.instructions)
+                        Text(skill.resolvedInstructions)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundColor(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)

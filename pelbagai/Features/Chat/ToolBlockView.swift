@@ -702,15 +702,25 @@ struct ResponseBlock: View {
                 }
                 
                 if !text.isEmpty {
-                    Text(text)
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
-                        .foregroundColor(isUser ? .white : .primary)
-                        .lineSpacing(4)
+                    MarkdownContentView(text: text)
+                        .foregroundColor(.primary)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
                         .background(
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .fill(isUser ? toolColor : Color.primary.opacity(0.06))
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .fill(isUser ? toolColor.opacity(0.15) : Color.primary.opacity(0.05))
+                                .background(
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .fill(.ultraThinMaterial)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                        .stroke(
+                                            isUser ? toolColor.opacity(0.2) : Color.primary.opacity(0.1),
+                                            lineWidth: 0.5
+                                        )
+                                )
+                                .shadow(color: isUser ? toolColor.opacity(0.08) : Color.clear, radius: 10, x: 0, y: 5)
                         )
                         .contextMenu {
                             Button {

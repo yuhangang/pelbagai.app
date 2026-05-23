@@ -193,6 +193,13 @@ name to a known plugin capability. The model cannot invent new plugins,
 capabilities, filesystem access, or database access; unknown plugin IDs and
 capability IDs fail closed in `NativePluginRegistry`.
 
+User capability controls are enforced at the same registry seam.
+`SystemCapabilitySettings` persists disabled `pluginID.capabilityID` keys in
+`UserDefaults`, Settings renders those declared capabilities as toggles, and
+`NativePluginRegistry` checks the stored user policy before every chat tool or
+runtime plugin invocation. This keeps the security decision outside model output
+and outside individual views.
+
 `ScriptEngine` remains only as a deprecated no-op compatibility shim. Workflow
 JavaScript is a separate path: it runs through `ToolScriptRuntime` with only a
 JSON input payload and must return a typed `WorkflowArtifact`.
@@ -213,6 +220,26 @@ raw transcript dump. `AgentMemoryStore` records compact local facts such as
 explicit "remember that" notes, user profile hints, preferences, and recent tool
 result summaries, then injects only a small relevant memory block into future
 chat prompts.
+## AI Canvas Architecture
+
+The AI Canvas feature allows users to generate, run, and iterate on fully self-contained HTML/CSS/JS micro-applications directly within chat sessions.
+
+### Model and System Prompts
+- **Canvas Prompt Builder (`CanvasPromptBuilder`)**: Constructs base system prompts for canvas generation and incremental refinement (iteration) turns. Defines standard CSS/HTML layout rules, iOS human-interface design guides, and injected bridge details.
+- **Canvas App Builder Skill**: Registered as a native skill file `canvas-app-builder.md` with capabilities `[.canvas, .htmlView]`.
+
+### Device Capability Bridge
+- **Canvas Bridge Coordinator (`CanvasBridgeCoordinator`)**: Serves as the message handler (`WKScriptMessageHandler`) for standard web content controllers. It injects the global `window.pelbagai` JS bridge context and provides async, Promise-based native hooks:
+  - Camera capture and Photo pickers.
+  - Documents sandbox directory (`Documents/canvas_files/<canvasId>/`) with save, list, and pick capabilities.
+  - Persistent state manager via `CanvasStorageManager` (`Documents/canvas_storage/<canvasId>.json`).
+  - Native UI alerts, toasts, and haptic feedback.
+  - Native UIActivityViewController sharing.
+
+### SwiftUI Presentation and Rendering
+- **`CanvasBlockView`**: Renders dynamic, glassmorphic cards inside chat message feeds for HTML attachments marked with extractedText `"[AI Canvas Micro-App]"`.
+- **`CanvasWebView`**: Hosts the underlying `WKWebView` wrapping our bridge coordinator delegates.
+- **`CanvasFullscreenView`**: Provides immersive, edge-to-edge execution with safety padding and a glassmorphic dismiss overlay.
 
 ## Future Plans
 

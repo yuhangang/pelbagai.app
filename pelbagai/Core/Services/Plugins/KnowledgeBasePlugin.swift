@@ -1,4 +1,88 @@
 import Foundation
+import NaturalLanguage
+import Accelerate
+
+struct KnowledgeChunk: Codable {
+    let chunk_id: String
+    let page: Int
+    let text: String
+    let images: [String]
+}
+
+actor VectorStore {
+    static let shared = VectorStore()
+    
+    private var chunks: [KnowledgeChunk] = []
+    private var embeddings: [[Double]] = []
+    private var isLoaded = false
+    
+    func loadIfNeeded() {
+        guard !isLoaded else { return }
+        
+        guard let url = Bundle.main.url(forResource: "survival_knowledge", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let loadedChunks = try? JSONDecoder().decode([KnowledgeChunk].self, from: data) else {
+            print("Failed to load survival_knowledge.json")
+            return
+        }
+        
+        guard let embeddingModel = NLEmbedding.sentenceEmbedding(for: .english) else {
+            print("Failed to load NLEmbedding")
+            return
+        }
+        
+        self.chunks = loadedChunks
+        
+        // In a real app, we would cache these to disk. For this prototype, we compute on the fly
+        // if not cached, or we just compute them once per session. Computing 500 chunks is fast enough.
+        var computedEmbeddings: [[Double]] = []
+        for chunk in loadedChunks {
+            if let vector = embeddingModel.vector(for: chunk.text) {
+                computedEmbeddings.append(vector)
+            } else {
+                // fallback empty vector
+                computedEmbeddings.append(Array(repeating: 0.0, count: 512))
+            }
+        }
+        
+        self.embeddings = computedEmbeddings
+        self.isLoaded = true
+    }
+    
+    func search(query: String, topK: Int = 3) -> [(chunk: KnowledgeChunk, score: Double)] {
+        loadIfNeeded()
+        
+        guard let embeddingModel = NLEmbedding.sentenceEmbedding(for: .english),
+              let queryVector = embeddingModel.vector(for: query) else {
+            return []
+        }
+        
+        var scores: [(index: Int, score: Double)] = []
+        
+        for (i, vector) in embeddings.enumerated() {
+            let score = cosineSimilarity(queryVector, vector)
+            scores.append((i, score))
+        }
+        
+        scores.sort { $0.score > $1.score }
+        
+        return scores.prefix(topK).map { (chunks[$0.index], $0.score) }
+    }
+    
+    private func cosineSimilarity(_ a: [Double], _ b: [Double]) -> Double {
+        guard a.count == b.count, a.count > 0 else { return 0.0 }
+        var dotProduct: Double = 0.0
+        var normA: Double = 0.0
+        var normB: Double = 0.0
+        
+        vDSP_dotprD(a, 1, b, 1, &dotProduct, vDSP_Length(a.count))
+        vDSP_svesqD(a, 1, &normA, vDSP_Length(a.count))
+        vDSP_svesqD(b, 1, &normB, vDSP_Length(b.count))
+        
+        if normA == 0.0 || normB == 0.0 { return 0.0 }
+        return dotProduct / (sqrt(normA) * sqrt(normB))
+    }
+}
 
 /// A native plugin that implements semantic search across local knowledge.
 /// Bridges the 'knowledge_base' chat tool and 'vector_search' capability.
@@ -41,28 +125,18 @@ struct KnowledgeBasePlugin: NativePlugin {
     }
 
     private func performSearch(query: String) async throws -> NativePluginResult {
-        let normalizedQuery = query.lowercased()
-        
-        // Mock data representing the "survival tips" archive
-        let knowledge = [
-            "Jungle Survival: Prioritize finding a water source and building a shelter before nightfall. Signals like smoke or mirrors can help rescuers find you.",
-            "Water Procurement: Look for vines like the Water Vine (Cissus), or collect rainwater using large leaves. Boiling water is essential to avoid parasites.",
-            "Shelter: Build an A-frame shelter using large palm leaves for rain protection. Keep the floor elevated to avoid dampness and insects.",
-            "Signaling: A small mirror or even a polished tin can can reflect sunlight for miles. Use three of anything (fires, whistles, flashes) as the international SOS signal.",
-            "Fire Making: Use dry bamboo shavings as tinder. Bamboo-on-bamboo friction is an effective way to start a fire in the jungle.",
-            "Navigation: If lost, follow streams downhill; they usually lead to larger rivers and eventual human settlement."
-        ]
-        
-        let results = knowledge.filter { entry in
-            let terms = normalizedQuery.split(separator: " ").filter { $0.count > 3 }
-            return terms.isEmpty || terms.contains { entry.lowercased().contains($0) }
-        }
+        let results = await VectorStore.shared.search(query: query)
         
         if results.isEmpty {
             return NativePluginResult(summary: "No specific match found in the knowledge base for '\(query)'. Advice: stay calm and stay put if you are lost.")
         }
         
-        let summary = results.joined(separator: "\n\n")
-        return NativePluginResult(summary: "Found in Knowledge Base:\n\n\(summary)")
+        var summaryText = "Found in Knowledge Base:\n\n"
+        
+        for (chunk, _) in results {
+            summaryText += "[Page \(chunk.page)]\n\(chunk.text)\n\n"
+        }
+        
+        return NativePluginResult(summary: summaryText.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }

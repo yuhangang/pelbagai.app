@@ -2,6 +2,7 @@ import SwiftUI
 import Combine
 import PhotosUI
 import CoreImage
+import AVFAudio
 
 #if canImport(UIKit)
 import UIKit
@@ -19,6 +20,8 @@ class WorkbenchViewModel: ObservableObject {
     @Published var selectedPhotoItem: PhotosPickerItem?
     @Published var capturedImage: UIImage?
     @Published var pendingImage: UIImage?
+    @Published var isRecording = false
+    @Published var speechBuffer: [Float] = []
 
     @Published var showCamera = false
     @Published var showExportSheet = false
@@ -41,6 +44,8 @@ class WorkbenchViewModel: ObservableObject {
     @Published var workflowStatus = ""
     
     private let exporter = ExcelExporter()
+    private let audioService = AudioService()
+    private let attachmentService = AttachmentService()
     private var cancellables = Set<AnyCancellable>()
     
     init(toolID: String, environment: AppEnvironment) {
@@ -259,11 +264,21 @@ class WorkbenchViewModel: ObservableObject {
             lastResult = scanResult
         }
 
+        // Inject inline scan result card when we have extracted data
+        if scanResult.hasData {
+            promptResponses.append(ToolPromptResponse(
+                text: "",
+                isUser: false,
+                scanResult: scanResult
+            ))
+        }
+
         if let data = output.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             if let answer = json["answer"] as? String {
                 promptResponses.append(ToolPromptResponse(text: answer, isUser: false))
-            } else {
+            } else if !scanResult.hasData {
+                // Only show fallback text if we didn't already show the scan card
                 promptResponses.append(ToolPromptResponse(text: "📋 Extracted details from prompt. Please review and confirm below.", isUser: false))
             }
             
@@ -279,7 +294,7 @@ class WorkbenchViewModel: ObservableObject {
                 )
             }
         } else {
-            if !output.isEmpty {
+            if !output.isEmpty && !scanResult.hasData {
                 promptResponses.append(ToolPromptResponse(text: output, isUser: false))
             }
         }
@@ -619,5 +634,166 @@ class WorkbenchViewModel: ObservableObject {
         default: break
         }
         
+    }
+
+    // MARK: - Confirm Chat Item Handling
+
+    func handleConfirmChoice(_ option: ConfirmChatOption) {
+        // Append the user's selection as a message in the timeline
+        promptResponses.append(ToolPromptResponse(text: option.title, isUser: true))
+        // Forward the selection as a text input to continue conversation
+        Task {
+            await processTextInput(option.title)
+        }
+    }
+
+    // MARK: - Audio & Voice Input
+
+    func handleMicTap() {
+        if isRecording {
+            Task {
+                await stopVoiceInputAndSend()
+            }
+        } else {
+            Task {
+                await startVoiceInput()
+            }
+        }
+    }
+
+    func startVoiceInput() async {
+        guard !isLoadingModels else { return }
+        
+        speechBuffer.removeAll()
+        isRecording = true
+        
+        do {
+            try audioService.startRecording { [weak self] audioBuffer in
+                guard let self = self else { return }
+                if let channelData = audioBuffer.floatChannelData?[0] {
+                    let frames = Int(audioBuffer.frameLength)
+                    let samples = Array(UnsafeBufferPointer(start: channelData, count: frames))
+                    
+                    Task { @MainActor in
+                        self.speechBuffer.append(contentsOf: samples)
+                    }
+                }
+            }
+        } catch {
+            print("Failed to start audio engine: \(error)")
+            isRecording = false
+        }
+    }
+
+    func stopVoiceInputAndSend() async {
+        audioService.stopRecording()
+        isRecording = false
+        
+        let audioData = speechBuffer
+        speechBuffer.removeAll()
+        
+        if !audioData.isEmpty {
+            sendAudioMessage(audioData)
+        }
+    }
+
+    func sendAudioMessage(_ audio: [Float]) {
+        promptResponses.append(ToolPromptResponse(text: "🎤 Processing audio...", isUser: true))
+        
+        Task {
+            do {
+                let selectedModel = await MainActor.run { self.environment.gemma.selectedModel }
+                let voicePolicy = VoiceRuntimePolicy(selectedModel: selectedModel)
+                
+                let transcript = try await self.transcribeWithWhisper(audio, policy: voicePolicy)
+                print("🎤 [WorkbenchVM] Voice transcript: \"\(transcript.prefix(80))\"")
+                
+                await MainActor.run {
+                    if let idx = self.promptResponses.lastIndex(where: { $0.text == "🎤 Processing audio..." }) {
+                        self.promptResponses.remove(at: idx)
+                    }
+                    self.promptResponses.append(ToolPromptResponse(text: "🎤 \(transcript)", isUser: true))
+                    
+                    if let target = self.workflowTarget(for: transcript) ?? (self.tool.workflow == nil ? nil : self.tool) {
+                        Task { await self.runConfiguredWorkflow(targetDefinition: target, latestSourceResult: nil, reason: transcript) }
+                    } else {
+                        Task { await self.processTextInput(transcript) }
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    if let idx = self.promptResponses.lastIndex(where: { $0.text == "🎤 Processing audio..." }) {
+                        self.promptResponses.remove(at: idx)
+                    }
+                    self.promptResponses.append(ToolPromptResponse(text: "I could not transcribe the voice message. \(error.localizedDescription)", isUser: false))
+                }
+            }
+        }
+    }
+
+    private func transcribeWithWhisper(_ audio: [Float], policy: VoiceRuntimePolicy) async throws -> String {
+        if policy.shouldUnloadGemmaBeforeWhisper {
+            await environment.gemma.unloadModel()
+        } else {
+            environment.mlx.clearCache()
+        }
+        let transcript = try await environment.whisper.transcribe(samples: audio)
+        await environment.whisper.unloadModel()
+        return transcript
+    }
+
+    // MARK: - File Attachment Input
+
+    func handleImportedFile(result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            
+            guard url.startAccessingSecurityScopedResource() else {
+                print("🧠 WorkbenchVM: Cannot access security scoped resource")
+                return
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+            
+            do {
+                let extractedText = try attachmentService.extractText(from: url)
+                let filename = url.lastPathComponent
+                
+                let localName = try saveAttachmentToStorage(from: url)
+                
+                promptResponses.append(ToolPromptResponse(text: "📄 Attached: \(filename)\n\n\(extractedText.prefix(300))...", isUser: true))
+                
+                if let target = self.workflowTarget(for: extractedText) ?? (self.tool.workflow == nil ? nil : self.tool) {
+                    Task { await self.runConfiguredWorkflow(targetDefinition: target, latestSourceResult: nil, reason: extractedText) }
+                } else {
+                    Task { await self.processTextInput(extractedText) }
+                }
+                
+                print("🧠 WorkbenchVM: Successfully processed attachment \(filename)")
+            } catch {
+                print("🧠 WorkbenchVM: Failed to process attachment: \(error)")
+                promptResponses.append(ToolPromptResponse(text: "Failed to process attachment: \(error.localizedDescription)", isUser: false))
+            }
+            
+        case .failure(let error):
+            print("🧠 WorkbenchVM: File import failed: \(error)")
+        }
+    }
+    
+    private func saveAttachmentToStorage(from url: URL) throws -> String {
+        let fileManager = FileManager.default
+        let documentsURL = try fileManager.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let attachmentsDirectory = documentsURL.appendingPathComponent("Attachments", isDirectory: true)
+        
+        if !fileManager.fileExists(atPath: attachmentsDirectory.path) {
+            try fileManager.createDirectory(at: attachmentsDirectory, withIntermediateDirectories: true)
+        }
+        
+        let fileExtension = url.pathExtension
+        let uniqueName = "\(UUID().uuidString).\(fileExtension)"
+        let destinationURL = attachmentsDirectory.appendingPathComponent(uniqueName)
+        
+        try fileManager.copyItem(at: url, to: destinationURL)
+        return uniqueName
     }
 }

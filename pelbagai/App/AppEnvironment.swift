@@ -17,6 +17,7 @@ class AppEnvironment: ObservableObject {
     lazy var storage: ToolStorage = .shared
     lazy var tools: ToolManager = .shared
     lazy var plugins: NativePluginRegistry = .shared
+    lazy var capabilitySettings: SystemCapabilitySettings = .shared
     lazy var agent: AgentOrchestrator = .shared
     lazy var vision: VisionManager = .shared
     lazy var whisper: WhisperManager = .shared

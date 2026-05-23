@@ -57,6 +57,8 @@ enum NativePluginError: LocalizedError {
     case unknownPlugin(String)
     case unknownCapability(pluginID: String, capabilityID: String)
     case unknownChatTool(String)
+    case disabledCapability(pluginDisplayName: String, capabilityDisplayName: String)
+    case invalidCapabilityInput(pluginDisplayName: String, reason: String)
 
     var errorDescription: String? {
         switch self {
@@ -66,6 +68,10 @@ enum NativePluginError: LocalizedError {
             return "Native plugin '\(pluginID)' does not expose capability '\(capabilityID)'."
         case .unknownChatTool(let toolName):
             return "Native chat tool '\(toolName)' is not available."
+        case .disabledCapability(let pluginDisplayName, let capabilityDisplayName):
+            return "\(pluginDisplayName) capability '\(capabilityDisplayName)' is disabled in Settings."
+        case .invalidCapabilityInput(let pluginDisplayName, let reason):
+            return "\(pluginDisplayName) rejected the request: \(reason)"
         }
     }
 }
@@ -77,7 +83,10 @@ final class NativePluginRegistry: ObservableObject {
     @Published private(set) var plugins: [String: any NativePlugin] = [:]
     @Published private(set) var chatTools: [String: NativeChatTool] = [:]
 
+    let capabilitySettings: SystemCapabilitySettings
+
     private init() {
+        self.capabilitySettings = .shared
         registerBuiltIns()
     }
 
@@ -93,7 +102,34 @@ final class NativePluginRegistry: ObservableObject {
     }
 
     func chatTool(named name: String) -> NativeChatTool? {
-        chatTools[name]
+        guard let tool = chatTools[name],
+              capabilitySettings.isEnabled(pluginID: tool.pluginID, capabilityID: tool.capabilityID) else {
+            return nil
+        }
+        return tool
+    }
+
+    var enabledChatTools: [NativeChatTool] {
+        chatTools.values.filter {
+            capabilitySettings.isEnabled(pluginID: $0.pluginID, capabilityID: $0.capabilityID)
+        }
+    }
+
+    var capabilityDescriptors: [SystemCapabilityDescriptor] {
+        plugins.values
+            .sorted { $0.displayName < $1.displayName }
+            .flatMap { plugin in
+                plugin.capabilities.map { capability in
+                    SystemCapabilityDescriptor(
+                        pluginID: plugin.id,
+                        pluginDisplayName: plugin.displayName,
+                        capabilityID: capability.id,
+                        capabilityDisplayName: capability.displayName,
+                        description: capability.description,
+                        requiresUserApproval: capability.requiresUserApproval
+                    )
+                }
+            }
     }
 
     func executeChatTool(name: String, arguments: [String: String] = [:]) async throws -> NativePluginResult {
@@ -115,8 +151,14 @@ final class NativePluginRegistry: ObservableObject {
         guard let plugin = plugins[pluginID] else {
             throw NativePluginError.unknownPlugin(pluginID)
         }
-        guard plugin.capabilities.contains(where: { $0.id == capabilityID }) else {
+        guard let capability = plugin.capabilities.first(where: { $0.id == capabilityID }) else {
             throw NativePluginError.unknownCapability(pluginID: pluginID, capabilityID: capabilityID)
+        }
+        guard capabilitySettings.isEnabled(pluginID: pluginID, capabilityID: capabilityID) else {
+            throw NativePluginError.disabledCapability(
+                pluginDisplayName: plugin.displayName,
+                capabilityDisplayName: capability.displayName
+            )
         }
         return try await plugin.execute(capabilityID: capabilityID, arguments: arguments)
     }

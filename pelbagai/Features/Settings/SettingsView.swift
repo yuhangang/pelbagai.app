@@ -121,6 +121,27 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
             }
+
+            Section(
+                header: Text("Security"),
+                footer: Text("Manage which native system capabilities chat, tools, and workflows may use.")
+            ) {
+                NavigationLink {
+                    SystemCapabilitiesSettingsView(viewModel: viewModel)
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("System Capabilities")
+                            Text(viewModel.systemCapabilitiesSummary)
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "lock.shield")
+                            .foregroundColor(.blue)
+                    }
+                }
+            }
             
         }
         .navigationTitle("Settings")
@@ -135,6 +156,78 @@ struct SettingsView: View {
             Text("You are currently on a cellular connection or hotspot. Downloading a model requires several gigabytes of data. Do you want to proceed?")
         }
     }
+}
+
+struct SystemCapabilitiesSettingsView: View {
+    @ObservedObject var viewModel: SettingsViewModel
+    @State private var searchText = ""
+
+    var body: some View {
+        Form {
+            Section {
+                Label {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Capability Guard")
+                            .font(.headline)
+                        Text("Disabled capabilities fail closed in the native plugin registry before any chat tool, workflow, or runtime action can execute them.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                } icon: {
+                    Image(systemName: "lock.shield.fill")
+                        .foregroundColor(.blue)
+                }
+            }
+
+            ForEach(viewModel.groupedSystemCapabilities(matching: searchText), id: \.pluginID) { group in
+                Section {
+                    ForEach(group.capabilities) { capability in
+                        Toggle(isOn: Binding(
+                            get: { viewModel.isCapabilityEnabled(capability) },
+                            set: { viewModel.setCapability(capability, enabled: $0) }
+                        )) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(capability.capabilityDisplayName)
+                                Text(capability.description)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+
+                                if capability.requiresUserApproval {
+                                    Label("Requires confirmation before execution", systemImage: "hand.raised.fill")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundColor(.orange)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text(group.displayName)
+                } footer: {
+                    Text("\(group.enabledCount) of \(group.totalCount) enabled")
+                }
+            }
+
+            if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                viewModel.groupedSystemCapabilities(matching: searchText).isEmpty {
+                ContentUnavailableView(
+                    "No Capabilities Found",
+                    systemImage: "magnifyingglass",
+                    description: Text("Try searching by plugin, capability, or permission description.")
+                )
+            }
+        }
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search capabilities")
+        .navigationTitle("System Capabilities")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct SystemCapabilityGroup {
+    let pluginID: String
+    let displayName: String
+    let enabledCount: Int
+    let totalCount: Int
+    let capabilities: [SystemCapabilityDescriptor]
 }
 
 #Preview {

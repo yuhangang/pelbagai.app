@@ -77,7 +77,7 @@ final class AgentRouter {
         // --- Meta: List Tools / Help ---
         if containsAny(["what can you do", "help", "tools", "capabilities", "list", "available"], in: normalized) {
             // Include a representative set of tools so the agent can describe its powers
-            return AgentRoute(candidateTools: Array(plugins.chatTools.values))
+            return AgentRoute(candidateTools: plugins.enabledChatTools)
         }
 
         if containsAny(["contact", "phone number", "address book"], in: normalized) {

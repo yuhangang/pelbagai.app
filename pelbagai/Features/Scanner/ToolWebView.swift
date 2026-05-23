@@ -292,4 +292,210 @@ fileprivate extension Color {
     }
 }
 
+// MARK: - SkillWebView
+
+struct SkillWebView: UIViewRepresentable {
+    let localFileURL: URL
+    let inputJson: String
+    var onHtmlSnapshot: ((String) -> Void)?
+    var onImageGenerated: ((Data) -> Void)?
+    
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+    
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        let contentController = WKUserContentController()
+        
+        // Register the script message handler for "pelbagaiBridge"
+        contentController.add(context.coordinator, name: "pelbagaiBridge")
+        
+        config.userContentController = contentController
+        
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
+        webView.scrollView.bounces = false
+        webView.navigationDelegate = context.coordinator
+        
+        // Load the local HTML file
+        webView.loadFileURL(localFileURL, allowingReadAccessTo: localFileURL.deletingLastPathComponent())
+        
+        return webView
+    }
+    
+    func updateUIView(_ uiView: WKWebView, context: Context) {
+        // No updates needed
+    }
+    
+    class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+        let parent: SkillWebView
+        
+        init(parent: SkillWebView) {
+            self.parent = parent
+        }
+        
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            // When document is loaded, invoke window.executeSkill(inputJson)
+            let escapedInput = parent.inputJson
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+                .replacingOccurrences(of: "\n", with: "\\n")
+                .replacingOccurrences(of: "\r", with: "\\r")
+            
+            let js = "if (window.executeSkill) { window.executeSkill(\"\(escapedInput)\"); }"
+            webView.evaluateJavaScript(js) { _, error in
+                if let error = error {
+                    print("⚙️ SkillWebView JS execution error: \(error.localizedDescription)")
+                }
+            }
+        }
+        
+        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+            guard message.name == "pelbagaiBridge" else { return }
+            
+            if let bodyString = message.body as? String {
+                DispatchQueue.main.async { [weak self] in
+                    self?.parent.onHtmlSnapshot?(bodyString)
+                }
+            } else if let dict = message.body as? [String: Any],
+                      let type = dict["type"] as? String {
+                if type == "imageGenerated", let urlStr = dict["url"] as? String {
+                    guard let url = URL(string: urlStr) else { return }
+                    Task {
+                        do {
+                            let (data, _) = try await URLSession.shared.data(from: url)
+                            await MainActor.run { [weak self] in
+                                self?.parent.onImageGenerated?(data)
+                            }
+                        } catch {
+                            print("⚠️ Failed to download generated image: \(error)")
+                        }
+                    }
+                } else if type == "saveImage", let urlStr = dict["url"] as? String {
+                    guard let url = URL(string: urlStr) else { return }
+                    Task {
+                        do {
+                            let (data, _) = try await URLSession.shared.data(from: url)
+                            await MainActor.run {
+                                guard let uiImage = UIImage(data: data) else { return }
+                                let activityVC = UIActivityViewController(activityItems: [uiImage], applicationActivities: nil)
+                                
+                                if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                                   let rootVC = windowScene.windows.first?.rootViewController {
+                                    
+                                    var topVC = rootVC
+                                    while let presented = topVC.presentedViewController {
+                                        topVC = presented
+                                    }
+                                    
+                                    if let popover = activityVC.popoverPresentationController {
+                                        popover.sourceView = topVC.view
+                                        popover.sourceRect = CGRect(x: topVC.view.bounds.midX, y: topVC.view.bounds.midY, width: 0, height: 0)
+                                        popover.permittedArrowDirections = []
+                                    }
+                                    
+                                    topVC.present(activityVC, animated: true)
+                                }
+                            }
+                        } catch {
+                            print("⚠️ Failed to save/share generated QR Code image: \(error)")
+                        }
+                    }
+                }
+            }
+        }
+        
+        func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+            if navigationAction.navigationType == .other || navigationAction.request.url?.scheme == "about" || navigationAction.request.url?.scheme == "file" {
+                decisionHandler(.allow)
+            } else {
+                decisionHandler(.cancel)
+            }
+        }
+    }
+}
+
+// MARK: - SkillWebViewBlock
+
+struct SkillWebViewBlock: View {
+    let localFileURL: URL
+    let messageId: UUID
+    @ObservedObject var viewModel: ChatViewModel
+    
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            // Header
+            HStack(spacing: 6) {
+                ZStack {
+                    Circle()
+                        .fill(Color.blue.opacity(0.12))
+                        .frame(width: 26, height: 26)
+                    Image(systemName: "cpu")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.blue)
+                }
+                Text("Interactive Skill Output")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.primary)
+            }
+            
+            Divider().opacity(0.3)
+            
+            // WebView
+            let inputJson = extractJsonPayload(from: viewModel.messages.first(where: { $0.id == messageId })?.content ?? "", userText: "")
+            SkillWebView(
+                localFileURL: localFileURL,
+                inputJson: inputJson,
+                onHtmlSnapshot: { updatedHtml in
+                    viewModel.saveHtmlSnapshot(for: messageId, html: updatedHtml)
+                },
+                onImageGenerated: { imageData in
+                    viewModel.updateMessageImageData(for: messageId, imageData: imageData)
+                }
+            )
+            .frame(height: 280)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.ultraThinMaterial)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(Color.blue.opacity(0.12), lineWidth: 0.5)
+                )
+        )
+    }
+    
+    private func extractJsonPayload(from responseText: String, userText: String) -> String {
+        // 1. Try to find a JSON block in responseText: {...}
+        if let startIdx = responseText.firstIndex(of: "{"),
+           let endIdx = responseText.lastIndex(of: "}") {
+            let jsonStr = String(responseText[startIdx...endIdx])
+            if let data = jsonStr.data(using: .utf8),
+               let _ = try? JSONSerialization.jsonObject(with: data) {
+                return jsonStr
+            }
+        }
+        
+        // 2. Try to find a URL in the userText or responseText
+        let textToSearch = responseText + " " + userText
+        let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+        let matches = detector?.matches(in: textToSearch, options: [], range: NSRange(location: 0, length: textToSearch.utf16.count))
+        if let firstMatch = matches?.first, let urlRange = Range(firstMatch.range, in: textToSearch) {
+            let urlStr = String(textToSearch[urlRange])
+            return "{\"text\":\"\(urlStr)\",\"url\":\"\(urlStr)\"}"
+        }
+        
+        // 3. Fallback: use responseText directly as the text payload
+        let cleanText = responseText.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: " ")
+        return "{\"text\":\"\(cleanText)\"}"
+    }
+}
+
 #endif

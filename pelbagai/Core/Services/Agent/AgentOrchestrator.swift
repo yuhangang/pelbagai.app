@@ -1,5 +1,8 @@
 import Foundation
 import Combine
+#if os(iOS)
+import UIKit
+#endif
 
 @MainActor
 final class AgentOrchestrator: ObservableObject {

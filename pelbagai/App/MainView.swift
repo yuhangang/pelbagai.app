@@ -7,6 +7,7 @@ enum NavigationItem: Hashable {
     case scanner(String? = nil)
     case settings
     case chat(UUID, initialPrompt: String? = nil, initialSkill: Skill? = nil)
+    case canvasCreator(UUID, initialPrompt: String? = nil)
 }
 
 struct MainView: View {
@@ -68,6 +69,9 @@ struct MainView: View {
                         case .chat(let id, let prompt, let skill):
                             ChatView(sessionId: id, initialPrompt: prompt, initialSkill: skill, env: viewModel.environment)
                                 .toolbar(.hidden, for: .tabBar)
+                        case .canvasCreator(let id, let prompt):
+                            CanvasThinkingChatView(sessionId: id, initialPrompt: prompt, env: viewModel.environment)
+                                .toolbar(.hidden, for: .tabBar)
                         default:
                             EmptyView()
                         }
@@ -84,6 +88,9 @@ struct MainView: View {
                         switch item {
                         case .chat(let id, let prompt, let skill):
                             ChatView(sessionId: id, initialPrompt: prompt, initialSkill: skill, env: viewModel.environment)
+                                .toolbar(.hidden, for: .tabBar)
+                        case .canvasCreator(let id, let prompt):
+                            CanvasThinkingChatView(sessionId: id, initialPrompt: prompt, env: viewModel.environment)
                                 .toolbar(.hidden, for: .tabBar)
                         default:
                             EmptyView()
@@ -191,6 +198,9 @@ struct MainView: View {
                     SettingsView(env: viewModel.environment)
                 case .chat(let id, let prompt, let skill):
                     ChatView(sessionId: id, initialPrompt: prompt, initialSkill: skill, env: viewModel.environment)
+                        .id(id)
+                case .canvasCreator(let id, let prompt):
+                    CanvasThinkingChatView(sessionId: id, initialPrompt: prompt, env: viewModel.environment)
                         .id(id)
                 }
             } else {

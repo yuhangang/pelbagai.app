@@ -40,6 +40,8 @@ struct ChatInputView: View {
     var onFileTap: () -> Void
     var onSend: () -> Void
     var onSkillsTap: () -> Void
+    var showModeSelector: Bool = true
+    var showSkillsSelector: Bool = true
     
     @Environment(\.colorScheme) private var colorScheme
     @State private var animateGradient = false
@@ -85,7 +87,7 @@ struct ChatInputView: View {
                         .foregroundColor(.primary)
                         .padding(.horizontal, 18)
                         .padding(.vertical, 12)
-                        .disabled(!isModelLoaded)
+                        .disabled(!isModelLoaded && !isLoadingModels)
                         .focused($isFocused)
                         .onSubmit {
                             isFocused = false
@@ -126,45 +128,49 @@ struct ChatInputView: View {
     
     private var actionRow: some View {
         HStack(spacing: 12) {
-            // Add button (dropdown option)
-            Menu {
-                Picker("Mode", selection: $inputMode) {
-                    Label("Chat Mode", systemImage: "bubble.left.and.bubble.right").tag(ChatInputMode.chat)
-                    Label("Tool Mode (\(userDefinitionsCount) custom)", systemImage: "wrench.and.screwdriver").tag(ChatInputMode.tool)
+            if showModeSelector {
+                // Add button (dropdown option)
+                Menu {
+                    Picker("Mode", selection: $inputMode) {
+                        Label("Chat Mode", systemImage: "bubble.left.and.bubble.right").tag(ChatInputMode.chat)
+                        Label("Tool Mode (\(userDefinitionsCount) custom)", systemImage: "wrench.and.screwdriver").tag(ChatInputMode.tool)
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 14, weight: .bold))
+                        Text(inputMode == .chat ? "Chat" : "Tool")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                    }
+                    .foregroundColor(colorScheme == .dark ? .black : .white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.primary))
                 }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 14, weight: .bold))
-                    Text(inputMode == .chat ? "Chat" : "Tool")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                }
-                .foregroundColor(colorScheme == .dark ? .black : .white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(Color.primary))
+                .disabled(isGenerating || (!isModelLoaded && !isLoadingModels))
+                .opacity(isGenerating || (!isModelLoaded && !isLoadingModels) ? 0.4 : 1.0)
             }
-            .disabled(isLoadingModels || isGenerating || !isModelLoaded)
-            .opacity(isLoadingModels || !isModelLoaded ? 0.4 : 1.0)
             
-            // Skills toggle button
-            Button(action: {
-                isFocused = false
-                onSkillsTap()
-            }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "bolt.fill")
-                        .font(.system(size: 11, weight: .bold))
-                    Text(activeSkill?.displayName ?? "Skills")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
+            if showSkillsSelector {
+                // Skills toggle button
+                Button(action: {
+                    isFocused = false
+                    onSkillsTap()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 11, weight: .bold))
+                        Text(activeSkill?.displayName ?? "Skills")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(activeSkill != nil ? Color.purple : Color.cyan))
                 }
-                .foregroundColor(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(activeSkill != nil ? Color.purple : Color.cyan))
+                .disabled(isGenerating || (!isModelLoaded && !isLoadingModels))
+                .opacity(isGenerating || (!isModelLoaded && !isLoadingModels) ? 0.4 : 1.0)
             }
-            .disabled(isLoadingModels || isGenerating || !isModelLoaded)
-            .opacity(isLoadingModels || !isModelLoaded ? 0.4 : 1.0)
             
             Spacer()
             
@@ -177,8 +183,8 @@ struct ChatInputView: View {
                     .font(.system(size: 18))
                     .foregroundColor(.primary.opacity(0.75))
             }
-            .disabled(isLoadingModels || isGenerating || !isModelLoaded)
-            .opacity(isLoadingModels || !isModelLoaded ? 0.4 : 1.0)
+            .disabled(isGenerating || (!isModelLoaded && !isLoadingModels))
+            .opacity(isGenerating || (!isModelLoaded && !isLoadingModels) ? 0.4 : 1.0)
             
             // File button
             Button(action: {
@@ -189,8 +195,8 @@ struct ChatInputView: View {
                     .font(.system(size: 18))
                     .foregroundColor(.primary.opacity(0.75))
             }
-            .disabled(isLoadingModels || isGenerating || !isModelLoaded)
-            .opacity(isLoadingModels || !isModelLoaded ? 0.4 : 1.0)
+            .disabled(isGenerating || (!isModelLoaded && !isLoadingModels))
+            .opacity(isGenerating || (!isModelLoaded && !isLoadingModels) ? 0.4 : 1.0)
             
             // Mic button
             Button(action: {
@@ -212,8 +218,8 @@ struct ChatInputView: View {
                         .foregroundColor(isRecording ? .red : .primary.opacity(0.75))
                 }
             }
-            .disabled(isLoadingModels || isGenerating || !isModelLoaded)
-            .opacity(isLoadingModels || !isModelLoaded ? 0.4 : 1.0)
+            .disabled(isGenerating || (!isModelLoaded && !isLoadingModels))
+            .opacity(isGenerating || (!isModelLoaded && !isLoadingModels) ? 0.4 : 1.0)
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 8)

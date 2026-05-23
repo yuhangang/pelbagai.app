@@ -11,6 +11,7 @@ class MainViewModel: ObservableObject {
     @Published var chatPath: [NavigationItem] = []
     @Published var allDefinitions: [LocalToolDefinition] = []
     @Published var totalResultCount: Int = 0
+    @Published var activeTab: NavigationItem = .home
     
     let environment: AppEnvironment
     private var cancellables = Set<AnyCancellable>()
@@ -75,7 +76,7 @@ class MainViewModel: ObservableObject {
         if selectedItem == sessionItem {
             #if os(iOS)
             // On iOS, default to remaining in the parent tab stack view
-            selectedItem = .chats
+            selectedItem = activeTab
             #else
             selectedItem = nil
             #endif
@@ -87,31 +88,42 @@ class MainViewModel: ObservableObject {
         guard let item = newItem else { return }
         
         switch item {
-        case .chat(_, _, _):
-            if !chatPath.contains(item) {
-                chatPath.append(item)
+        case .chat(_, _, _), .canvasCreator(_, _):
+            if activeTab == .home {
+                if !homePath.contains(item) {
+                    homePath.append(item)
+                }
+            } else {
+                if !chatPath.contains(item) {
+                    chatPath.append(item)
+                }
+                activeTab = .chats
             }
         case .scanner(let toolID):
             if !homePath.contains(item) {
                 homePath.append(item)
             }
-        default:
-            break
+            activeTab = .home
+        case .home:
+            activeTab = .home
+        case .chats:
+            activeTab = .chats
+        case .data:
+            activeTab = .data
+        case .settings:
+            activeTab = .settings
         }
     }
     
     var selectedTab: Binding<NavigationItem> {
         Binding(
             get: {
-                guard let item = self.selectedItem else { return .home }
-                switch item {
-                case .home, .scanner: return .home
-                case .chats, .chat: return .chats
-                case .data: return .data
-                case .settings: return .settings
-                }
+                self.activeTab
             },
-            set: { self.selectedItem = $0 }
+            set: {
+                self.activeTab = $0
+                self.selectedItem = $0
+            }
         )
     }
 }
